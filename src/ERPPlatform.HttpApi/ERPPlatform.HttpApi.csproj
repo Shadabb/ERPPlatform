@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ERPPlatform.Application.Contracts\ERPPlatform.Application.Contracts.csproj" />
+    <ProjectReference Include="..\ERPPlatform.Application\ERPPlatform.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>
