@@ -1,0 +1,596 @@
+@page "/log-analytics/dashboard"
+@using ERPPlatform.Web.Pages.LogAnalytics
+@model DashboardModel
+@{
+    ViewData["Title"] = "Log Analytics Dashboard";
+}
+
+@section styles {
+    <link href="~/libs/bootstrap/css/bootstrap.min.css" rel="stylesheet" />
+    <link href="~/Pages/LogAnalytics/Dashboard.css" rel="stylesheet" />
+}
+
+<!-- Anti-forgery token for AJAX requests -->
+@Html.AntiForgeryToken()
+
+<div class="log-analytics-dashboard">
+    <!-- Header -->
+    <div class="dashboard-header mb-4">
+        <div class="row align-items-center">
+            <div class="col-md-6">
+                <h2><i class="fas fa-chart-line"></i> Log Analytics Dashboard</h2>
+                <p class="text-muted">Real-time monitoring and analysis of application logs</p>
+            </div>
+            <div class="col-md-6 text-end">
+                <div class="btn-group" role="group">
+                    <button type="button" class="btn btn-outline-primary" onclick="refreshDashboard()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                    <button type="button" class="btn btn-outline-success" onclick="exportLogs()">
+                        <i class="fas fa-download"></i> Export
+                    </button>
+                    <button type="button" class="btn btn-outline-info" onclick="toggleAutoRefresh()">
+                        <i class="fas fa-play" id="autoRefreshIcon"></i> Auto Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Health Alert -->
+    <div id="systemHealthAlert" class="alert alert-dismissible fade show d-none" role="alert">
+        <strong id="healthAlertTitle">System Status</strong>
+        <span id="healthAlertMessage"></span>
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+
+    <!-- Key Metrics Row -->
+    <div class="row mb-4">
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="metric-card">
+                <div class="metric-icon bg-primary">
+                    <i class="fas fa-list"></i>
+                </div>
+                <div class="metric-info">
+                    <h3 id="totalLogs">-</h3>
+                    <p>Total Logs</p>
+                    <small class="text-muted">Last 7 days</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="metric-card">
+                <div class="metric-icon bg-danger">
+                    <i class="fas fa-exclamation-triangle"></i>
+                </div>
+                <div class="metric-info">
+                    <h3 id="errorCount">-</h3>
+                    <p>Errors</p>
+                    <small class="text-muted">Requires attention</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="metric-card">
+                <div class="metric-icon bg-warning">
+                    <i class="fas fa-clock"></i>
+                </div>
+                <div class="metric-info">
+                    <h3 id="avgResponseTime">-</h3>
+                    <p>Avg Response Time</p>
+                    <small class="text-muted">Milliseconds</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="metric-card">
+                <div class="metric-icon bg-info">
+                    <i class="fas fa-shield-alt"></i>
+                </div>
+                <div class="metric-info">
+                    <h3 id="securityEvents">-</h3>
+                    <p>Security Events</p>
+                    <small class="text-muted">Last 24 hours</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audit Log Metrics Row -->
+    <div class="row mb-4">
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="metric-card">
+                <div class="metric-icon bg-success">
+                    <i class="fas fa-clipboard-list"></i>
+                </div>
+                <div class="metric-info">
+                    <h3 id="totalAuditLogs">-</h3>
+                    <p>Total Audit Logs</p>
+                    <small class="text-muted">Last 7 days</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="metric-card">
+                <div class="metric-icon bg-primary">
+                    <i class="fas fa-user-check"></i>
+                </div>
+                <div class="metric-info">
+                    <h3 id="todayAuditLogs">-</h3>
+                    <p>Today's Activities</p>
+                    <small class="text-muted">User operations</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="metric-card">
+                <div class="metric-icon bg-warning">
+                    <i class="fas fa-exclamation-circle"></i>
+                </div>
+                <div class="metric-info">
+                    <h3 id="failedOperations">-</h3>
+                    <p>Failed Operations</p>
+                    <small class="text-muted">Needs attention</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="metric-card">
+                <div class="metric-icon bg-secondary">
+                    <i class="fas fa-stopwatch"></i>
+                </div>
+                <div class="metric-info">
+                    <h3 id="avgAuditDuration">-</h3>
+                    <p>Avg Duration</p>
+                    <small class="text-muted">Milliseconds</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="row mb-4">
+        <!-- Log Level Distribution -->
+        <div class="col-lg-4 mb-3">
+            <div class="chart-card">
+                <div class="card-header">
+                    <h5><i class="fas fa-chart-pie"></i> Log Level Distribution</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="logLevelChart" width="400" height="300"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Application Distribution -->
+        <div class="col-lg-4 mb-3">
+            <div class="chart-card">
+                <div class="card-header">
+                    <h5><i class="fas fa-chart-bar"></i> Application Logs</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="applicationChart" width="400" height="300"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hourly Trends -->
+        <div class="col-lg-4 mb-3">
+            <div class="chart-card">
+                <div class="card-header">
+                    <h5><i class="fas fa-chart-line"></i> Hourly Trends</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="hourlyTrendsChart" width="400" height="300"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Additional Content Row -->
+    <div class="row mb-4">
+        <!-- Top Errors -->
+        <div class="col-lg-4 mb-3">
+            <div class="content-card">
+                <div class="card-header">
+                    <h6><i class="fas fa-exclamation-triangle"></i> Top Errors</h6>
+                </div>
+                <div class="card-body p-0">
+                    <div id="topErrorsContainer">
+                        <div class="text-center p-4">
+                            <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Performance Metrics -->
+        <div class="col-lg-4 mb-3">
+            <div class="content-card">
+                <div class="card-header">
+                    <h6><i class="fas fa-tachometer-alt"></i> Performance Metrics</h6>
+                </div>
+                <div class="card-body p-0">
+                    <div id="performanceContainer">
+                        <div class="text-center p-4">
+                            <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Top User Activities -->
+        <div class="col-lg-4 mb-3">
+            <div class="content-card">
+                <div class="card-header">
+                    <h6><i class="fas fa-user-clock"></i> Top User Activities</h6>
+                </div>
+                <div class="card-body p-0">
+                    <div id="topUserActivitiesContainer">
+                        <div class="text-center p-4">
+                            <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Content Row -->
+    <div class="row">
+        <!-- Recent Logs -->
+        <div class="col-lg-8 mb-3">
+            <div class="content-card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5><i class="fas fa-stream"></i> Recent Logs</h5>
+                    <button class="btn btn-sm btn-outline-primary" onclick="showLogSearch()">
+                        <i class="fas fa-search"></i> Search
+                    </button>
+                </div>
+                <div class="card-body p-0">
+                    <div id="recentLogsContainer">
+                        <div class="text-center p-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-footer bg-light d-flex justify-content-between align-items-center" id="recentLogsPagination" style="display: none;">
+                        <small class="text-muted" id="recentLogsInfo">Showing 1-10 of 100 items</small>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-secondary" onclick="previousRecentLogs()">
+                                <i class="fas fa-chevron-left"></i> Previous
+                            </button>
+                            <button class="btn btn-outline-secondary" onclick="nextRecentLogs()">
+                                Next <i class="fas fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- API Endpoints -->
+        <div class="col-lg-4">
+            <div class="content-card">
+                <div class="card-header">
+                    <h6><i class="fas fa-network-wired"></i> API Endpoints</h6>
+                </div>
+                <div class="card-body p-0">
+                    <div id="apiEndpointsContainer">
+                        <div class="text-center p-4">
+                            <div class="spinner-border spinner-border-sm text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audit Logs Row -->
+    <div class="row">
+        <!-- Recent Audit Logs -->
+        <div class="col-lg-8 mb-3">
+            <div class="content-card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5><i class="fas fa-history"></i> Recent Audit Logs</h5>
+                    <button class="btn btn-sm btn-outline-primary" onclick="showAuditLogSearch()">
+                        <i class="fas fa-search"></i> Search
+                    </button>
+                </div>
+                <div class="card-body p-0">
+                    <div id="recentAuditLogsContainer">
+                        <div class="text-center p-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-footer bg-light d-flex justify-content-between align-items-center" id="recentAuditLogsPagination" style="display: none;">
+                        <small class="text-muted" id="recentAuditLogsInfo">Showing 1-10 of 50 activities</small>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-secondary" onclick="previousRecentAuditLogs()">
+                                <i class="fas fa-chevron-left"></i> Previous
+                            </button>
+                            <button class="btn btn-outline-secondary" onclick="nextRecentAuditLogs()">
+                                Next <i class="fas fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Health Status -->
+        <div class="col-lg-4">
+            <div class="content-card">
+                <div class="card-header">
+                    <h6><i class="fas fa-heartbeat"></i> System Health</h6>
+                </div>
+                <div class="card-body">
+                    <div id="systemHealthContainer">
+                        <!-- Overall Status -->
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <div class="d-flex align-items-center">
+                                <div id="systemStatusIndicator" class="status-indicator bg-success me-2"></div>
+                                <span class="fw-semibold" id="systemStatusText">Healthy</span>
+                            </div>
+                            <small class="text-muted" id="lastHealthCheck">Last check: --</small>
+                        </div>
+                        
+                        <!-- Health Metrics -->
+                        <div class="health-metrics">
+                            <div class="health-metric mb-2">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <small class="text-muted"><i class="fas fa-tachometer-alt me-1"></i>Avg Response</small>
+                                    <span id="avgResponseTime" class="badge bg-primary">--</span>
+                                </div>
+                            </div>
+                            <div class="health-metric mb-2">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <small class="text-muted"><i class="fas fa-exclamation-triangle me-1"></i>Recent Errors</small>
+                                    <span id="recentErrorsCount" class="badge bg-warning">--</span>
+                                </div>
+                            </div>
+                            <div class="health-metric mb-2">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <small class="text-muted"><i class="fas fa-clock me-1"></i>Slow Operations</small>
+                                    <span id="slowOperationsCount" class="badge bg-secondary">--</span>
+                                </div>
+                            </div>
+                            <div class="health-metric">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <small class="text-muted"><i class="fas fa-database me-1"></i>DB Connections</small>
+                                    <span id="dbConnectionsStatus" class="badge bg-success">Active</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- Log Search Modal -->
+<div class="modal fade" id="logSearchModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-search"></i> Search Logs</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="logSearchForm">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">From Date</label>
+                            <input type="datetime-local" class="form-control" id="fromDate" name="fromDate" onchange="validateDateRange()">
+                            <div class="invalid-feedback" id="fromDateError"></div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">To Date</label>
+                            <input type="datetime-local" class="form-control" id="toDate" name="toDate" onchange="validateDateRange()">
+                            <div class="invalid-feedback" id="toDateError"></div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Log Levels</label>
+                            <select class="form-select" multiple id="logLevels" name="logLevels" size="4">
+                                <option value="Information">Information</option>
+                                <option value="Warning">Warning</option>
+                                <option value="Error">Error</option>
+                                <option value="Critical">Critical</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Applications</label>
+                            <select class="form-select" multiple id="applications" name="applications" size="4">
+                                <!-- Populated dynamically -->
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Search Text</label>
+                        <input type="text" class="form-control" id="searchText" name="searchText" placeholder="Search in messages...">
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">User ID</label>
+                            <input type="text" class="form-control" id="userId" name="userId">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Category</label>
+                            <select class="form-select" id="category" name="category">
+                                <option value="">All Categories</option>
+                                <option value="BusinessOperation">Business Operation</option>
+                                <option value="Performance">Performance</option>
+                                <option value="Security">Security</option>
+                                <option value="UserActivity">User Activity</option>
+                            </select>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-warning" onclick="resetLogSearchForm()">
+                    <i class="fas fa-undo"></i> Reset All
+                </button>
+                <div class="ms-auto">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary" onclick="searchLogs()">
+                        <i class="fas fa-search"></i> Search
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Audit Log Search Modal -->
+<div class="modal fade" id="auditLogSearchModal" tabindex="-1" aria-labelledby="auditLogSearchModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="auditLogSearchModalLabel">
+                    <i class="fas fa-search"></i> Search Audit Logs
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="auditLogSearchForm">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">From Date <small class="text-muted">(optional)</small></label>
+                            <input type="date" class="form-control" id="auditFromDate" name="auditFromDate" onchange="validateAuditDateRange()">
+                            <div class="invalid-feedback" id="auditFromDateError"></div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">To Date <small class="text-muted">(optional)</small></label>
+                            <input type="date" class="form-control" id="auditToDate" name="auditToDate" onchange="validateAuditDateRange()">
+                            <div class="invalid-feedback" id="auditToDateError"></div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">User ID</label>
+                            <input type="text" class="form-control" id="auditUserId" name="auditUserId">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Service Name</label>
+                            <input type="text" class="form-control" id="auditServiceName" name="auditServiceName">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Method Name</label>
+                            <input type="text" class="form-control" id="auditMethodName" name="auditMethodName">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">HTTP Method</label>
+                            <select class="form-select" id="auditHttpMethod" name="auditHttpMethod">
+                                <option value="">All Methods</option>
+                                <option value="GET">GET</option>
+                                <option value="POST">POST</option>
+                                <option value="PUT">PUT</option>
+                                <option value="DELETE">DELETE</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Client IP</label>
+                            <input type="text" class="form-control" id="auditClientIp" name="auditClientIp">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Has Exception</label>
+                            <select class="form-select" id="auditHasException" name="auditHasException">
+                                <option value="">All</option>
+                                <option value="true">With Exceptions</option>
+                                <option value="false">Without Exceptions</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Min Duration (ms)</label>
+                            <input type="number" class="form-control" id="auditMinDuration" name="auditMinDuration">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Max Duration (ms)</label>
+                            <input type="number" class="form-control" id="auditMaxDuration" name="auditMaxDuration">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-warning" onclick="resetAuditLogSearchForm()">
+                    <i class="fas fa-undo"></i> Reset All
+                </button>
+                <div class="ms-auto">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary" onclick="searchAuditLogs()">
+                        <i class="fas fa-search"></i> Search
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Audit Log Search Results Modal -->
+<div class="modal fade" id="auditLogSearchResultsModal" tabindex="-1" aria-labelledby="auditLogSearchResultsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="auditLogSearchResultsModalLabel">
+                    <i class="fas fa-list"></i> Audit Log Search Results
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="auditLogSearchResults">
+                    <!-- Search results will be populated here -->
+                </div>
+            </div>
+            <div class="modal-footer d-flex justify-content-between align-items-center">
+                <div>
+                    <span id="auditSearchResultsInfo" class="text-muted">Showing results</span>
+                </div>
+                <div>
+                    <div class="btn-group" id="auditSearchPagination" style="display: none;">
+                        <button class="btn btn-outline-secondary btn-sm" onclick="previousAuditSearchPage()" id="auditSearchPrevBtn">
+                            <i class="fas fa-chevron-left"></i> Previous
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="nextAuditSearchPage()" id="auditSearchNextBtn">
+                            Next <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                    <button type="button" class="btn btn-secondary ms-2" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section scripts {
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- SignalR CDN -->
+    <script src="https://unpkg.com/@@microsoft/signalr@@6.0.1/dist/browser/signalr.min.js"></script>
+    
+    <script src="~/Pages/LogAnalytics/Dashboard.js?v=@DateTime.Now.Ticks"></script>
+}

@@ -10,6 +10,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using ERPPlatform.Web.Hubs;
 using ERPPlatform.Localization;
 using ERPPlatform.MultiTenancy;
 using ERPPlatform.Web.Menus;
@@ -97,6 +98,7 @@ public class ERPPlatformWebModule : AbpModule
         ConfigureNavigationServices(configuration);
         ConfigureMultiTenancy();
         ConfigureSwaggerServices(context.Services);
+        ConfigureSignalR(context.Services);
     }
 
     private void ConfigureBundles()
@@ -287,6 +289,11 @@ public class ERPPlatformWebModule : AbpModule
         });
     }
 
+    private void ConfigureSignalR(IServiceCollection services)
+    {
+        services.AddSignalR();
+    }
+
     public override void OnApplicationInitialization(ApplicationInitializationContext context)
     {
         var app = context.GetApplicationBuilder();
@@ -323,5 +330,10 @@ public class ERPPlatformWebModule : AbpModule
         });
         app.UseAbpSerilogEnrichers();
         app.UseConfiguredEndpoints();
+        
+        app.UseEndpoints(endpoints =>
+        {
+            endpoints.MapHub<LogAnalyticsHub>("/log-analytics-hub");
+        });
     }
 }

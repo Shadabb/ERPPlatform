@@ -1,0 +1,762 @@
+/* Log Analytics Dashboard Styles */
+.log-analytics-dashboard {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f8f9fa;
+    min-height: 100vh;
+    padding: 20px;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+/* Header Styles */
+.dashboard-header h2 {
+    color: #2c3e50;
+    font-weight: 600;
+    margin-bottom: 5px;
+}
+
+.dashboard-header i {
+    color: #3498db;
+    margin-right: 10px;
+}
+
+/* Metric Cards */
+.metric-card {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    display: flex;
+    align-items: center;
+    transition: transform 0.2s ease;
+    height: 100%;
+}
+
+.metric-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+}
+
+.metric-icon {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 15px;
+    flex-shrink: 0;
+}
+
+.metric-icon i {
+    font-size: 24px;
+    color: white;
+}
+
+.metric-info h3 {
+    font-size: 2rem;
+    font-weight: 700;
+    margin: 0;
+    color: #2c3e50;
+    line-height: 1;
+}
+
+.metric-info p {
+    font-size: 0.9rem;
+    color: #7f8c8d;
+    margin: 5px 0 0 0;
+    font-weight: 500;
+}
+
+.metric-info small {
+    font-size: 0.75rem;
+}
+
+/* Chart Cards */
+.chart-card, .content-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    overflow: hidden;
+    height: 100%;
+}
+
+.chart-card .card-header, .content-card .card-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 15px 20px;
+    border: none;
+    font-weight: 600;
+}
+
+.chart-card .card-header i, .content-card .card-header i {
+    margin-right: 8px;
+}
+
+.chart-card .card-body, .content-card .card-body {
+    padding: 20px;
+}
+
+/* Recent Logs */
+.log-entry {
+    border-bottom: 1px solid #eee;
+    padding: 12px 20px;
+    transition: background-color 0.2s ease;
+}
+
+.log-entry:hover {
+    background-color: #f8f9fa;
+}
+
+.log-entry:last-child {
+    border-bottom: none;
+}
+
+.log-level {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    min-width: 80px;
+    text-align: center;
+}
+
+.log-level.error {
+    background-color: #fee;
+    color: #dc3545;
+    border: 1px solid #f5c6cb;
+}
+
+.log-level.warning {
+    background-color: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeaa7;
+}
+
+.log-level.information {
+    background-color: #e7f3ff;
+    color: #0056b3;
+    border: 1px solid #b3d7ff;
+}
+
+.log-level.critical {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f1aeb5;
+}
+
+.log-message {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 0.9rem;
+    color: #2c3e50;
+    margin: 8px 0;
+    line-height: 1.4;
+}
+
+.log-meta {
+    font-size: 0.8rem;
+    color: #7f8c8d;
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+.log-timestamp {
+    font-weight: 500;
+}
+
+.log-application {
+    background-color: #e9ecef;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+/* Error List */
+.error-item {
+    border-bottom: 1px solid #eee;
+    padding: 12px 20px;
+}
+
+.error-item:last-child {
+    border-bottom: none;
+}
+
+.error-message {
+    font-weight: 600;
+    color: #dc3545;
+    font-size: 0.9rem;
+    margin-bottom: 5px;
+}
+
+.error-details {
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+.error-count {
+    background-color: #dc3545;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+/* Performance Items */
+.performance-item {
+    border-bottom: 1px solid #eee;
+    padding: 12px 20px;
+}
+
+.performance-item:last-child {
+    border-bottom: none;
+}
+
+.performance-operation {
+    font-weight: 600;
+    color: #2c3e50;
+    font-size: 0.9rem;
+    margin-bottom: 5px;
+}
+
+.performance-metrics {
+    display: flex;
+    gap: 10px;
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+.performance-duration {
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.performance-duration.slow {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+.performance-duration.normal {
+    background-color: #d1ecf1;
+    color: #0c5460;
+}
+
+.performance-duration.fast {
+    background-color: #d4edda;
+    color: #155724;
+}
+
+/* Fix overlapping cards */
+.content-card {
+    margin-bottom: 1.5rem !important;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    border: 1px solid rgba(0, 0, 0, 0.125);
+}
+
+.content-card .card-body {
+    overflow: hidden;
+    min-height: 200px;
+}
+
+/* Ensure cards don't float */
+.col-lg-4 {
+    display: flex;
+    flex-direction: column;
+}
+
+.col-lg-4 .content-card {
+    flex: none;
+}
+
+/* System Health Status Styles */
+.status-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.health-metrics {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 15px;
+    height: 140px;
+}
+
+.health-metric {
+    transition: background-color 0.2s ease;
+}
+
+.health-metric:hover {
+    background-color: rgba(255, 255, 255, 0.5);
+    border-radius: 4px;
+    padding: 2px 8px;
+    margin: -2px -8px;
+}
+
+/* API Endpoints - Matching Recent Logs Design */
+.endpoint-method {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    min-width: 50px;
+    text-align: center;
+}
+
+.endpoint-method.get {
+    background-color: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.endpoint-method.post {
+    background-color: #d1ecf1;
+    color: #0c5460;
+    border: 1px solid #bee5eb;
+}
+
+.endpoint-method.put {
+    background-color: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeaa7;
+}
+
+.endpoint-method.delete {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+/* API Endpoints inherit Recent Logs hover effects */
+#apiEndpointsContainer .log-entry:hover {
+    background-color: #f8f9fa;
+    transform: translateX(2px);
+    transition: all 0.2s ease;
+}
+
+/* Ensure proper spacing for API endpoint badges */
+#apiEndpointsContainer .badge {
+    font-size: 0.7rem;
+    padding: 3px 8px;
+}
+
+/* API endpoint specific meta styling */
+#apiEndpointsContainer .log-meta {
+    margin-top: 8px;
+}
+
+/* Authentication Events Styles */
+.auth-events {
+    max-height: 300px;
+    overflow-y: auto;
+    min-height: 200px;
+}
+
+.auth-event-item {
+    padding: 10px 15px;
+    border-bottom: 1px solid #eee;
+    transition: background-color 0.2s ease;
+}
+
+.auth-event-item:hover {
+    background-color: #f8f9fa;
+}
+
+.auth-event-item:last-child {
+    border-bottom: none;
+}
+
+.auth-event-type {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.auth-event-type.login {
+    background-color: #d4edda;
+    color: #155724;
+}
+
+.auth-event-type.logout {
+    background-color: #fff3cd;
+    color: #856404;
+}
+
+.auth-event-type.failure {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+.auth-event-stats {
+    display: flex;
+    gap: 12px;
+    margin-top: 4px;
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+/* System Health Alert */
+.alert.alert-success {
+    background-color: #d4edda;
+    border-color: #c3e6cb;
+    color: #155724;
+}
+
+.alert.alert-warning {
+    background-color: #fff3cd;
+    border-color: #ffeaa7;
+    color: #856404;
+}
+
+.alert.alert-danger {
+    background-color: #f8d7da;
+    border-color: #f1aeb5;
+    color: #721c24;
+}
+
+/* Search Modal */
+.modal-content {
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+}
+
+.modal-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 12px 12px 0 0;
+}
+
+/* Form Controls */
+.form-control, .form-select {
+    border-radius: 8px;
+    border: 1px solid #dee2e6;
+    padding: 10px 12px;
+}
+
+.form-control:focus, .form-select:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+}
+
+/* Buttons */
+.btn {
+    border-radius: 8px;
+    font-weight: 500;
+    padding: 8px 16px;
+}
+
+.btn-outline-primary {
+    color: #667eea;
+    border-color: #667eea;
+}
+
+.btn-outline-primary:hover {
+    background-color: #667eea;
+    border-color: #667eea;
+}
+
+/* Loading States */
+.spinner-border {
+    width: 2rem;
+    height: 2rem;
+}
+
+.spinner-border-sm {
+    width: 1rem;
+    height: 1rem;
+}
+
+/* Audit Log Styles */
+.audit-log-entry {
+    border-bottom: 1px solid #eee;
+    padding: 12px 20px;
+    transition: background-color 0.2s ease;
+}
+
+.audit-log-entry:hover {
+    background-color: #f8f9fa;
+}
+
+.audit-log-entry:last-child {
+    border-bottom: none;
+}
+
+.audit-operation {
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+.audit-details {
+    font-size: 0.8rem;
+    color: #6c757d;
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+    margin-top: 5px;
+}
+
+.audit-duration {
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.audit-user, .audit-ip, .audit-http {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.audit-timestamp {
+    font-weight: 500;
+    color: #495057;
+}
+
+.audit-exception {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 0.8rem;
+    color: #dc3545;
+    background-color: #f8d7da;
+    padding: 8px;
+    border-radius: 4px;
+    margin-top: 8px;
+    border-left: 3px solid #dc3545;
+}
+
+/* User Activity Styles */
+.user-activity-item {
+    border-bottom: 1px solid #eee;
+    padding: 12px 20px;
+}
+
+.user-activity-item:last-child {
+    border-bottom: none;
+}
+
+.user-info strong {
+    color: #2c3e50;
+    font-size: 0.9rem;
+}
+
+.user-stats {
+    font-size: 0.8rem;
+    color: #6c757d;
+    display: flex;
+    gap: 10px;
+    margin-top: 2px;
+}
+
+.user-details {
+    display: flex;
+    gap: 15px;
+    margin-top: 5px;
+    font-size: 0.75rem;
+    color: #868e96;
+}
+
+.activity-count {
+    font-weight: 600;
+}
+
+
+/* Badge Styles */
+.badge.bg-success {
+    background-color: #28a745 !important;
+}
+
+.badge.bg-danger {
+    background-color: #dc3545 !important;
+}
+
+/* Fix for container positioning issues */
+.content-card {
+    position: relative;
+    overflow: hidden;
+    max-width: 100%;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+#topUserActivitiesContainer, #apiEndpointPerformanceContainer, #apiEndpointsContainer {
+    position: relative;
+    overflow: hidden;
+    min-height: 100px;
+    max-height: 400px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* Simple Bootstrap grid fix */
+.log-analytics-dashboard .col-lg-4,
+.log-analytics-dashboard .col-lg-8 {
+    position: relative;
+    min-height: 1px;
+    padding-left: 15px;
+    padding-right: 15px;
+}
+
+@media (min-width: 1200px) {
+    .log-analytics-dashboard .col-lg-4 {
+        width: 33.33333333%;
+        float: left;
+    }
+    
+    .log-analytics-dashboard .col-lg-8 {
+        width: 66.66666667%;
+        float: left;
+    }
+}
+
+.log-analytics-dashboard .row:after {
+    content: "";
+    display: table;
+    clear: both;
+}
+
+/* Clean API Endpoints container */
+#apiEndpointsContainer {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* Ensure consistent card heights and spacing */
+.log-analytics-dashboard .content-card {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.log-analytics-dashboard .content-card .card-body {
+    flex-grow: 1;
+}
+
+/* System Health container sizing */
+#systemHealthContainer {
+    min-height: 200px;
+}
+
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .log-analytics-dashboard {
+        padding: 10px;
+    }
+    
+    .metric-card {
+        margin-bottom: 15px;
+    }
+    
+    .chart-card, .content-card {
+        margin-bottom: 15px;
+    }
+    
+    .dashboard-header .btn-group {
+        flex-direction: column;
+        width: 100%;
+    }
+    
+    .dashboard-header .btn-group .btn {
+        margin-bottom: 5px;
+    }
+    
+    .log-meta {
+        flex-direction: column;
+        gap: 5px;
+    }
+}
+
+@media (max-width: 576px) {
+    .metric-info h3 {
+        font-size: 1.5rem;
+    }
+    
+    .metric-icon {
+        width: 50px;
+        height: 50px;
+        margin-right: 10px;
+    }
+    
+    .metric-icon i {
+        font-size: 20px;
+    }
+}
+
+/* Pagination Styles */
+.card-footer {
+    background-color: #f8f9fa !important;
+    border-top: 1px solid #e9ecef;
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+}
+
+.card-footer .btn-group {
+    gap: 2px;
+}
+
+.card-footer .btn-outline-secondary {
+    border-color: #6c757d;
+    color: #6c757d;
+    font-size: 0.8rem;
+    padding: 0.25rem 0.5rem;
+    transition: all 0.2s ease;
+}
+
+.card-footer .btn-outline-secondary:hover {
+    background-color: #6c757d;
+    border-color: #6c757d;
+    color: white;
+}
+
+.card-footer .btn-outline-secondary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.card-footer .btn-outline-secondary:disabled:hover {
+    background-color: transparent;
+    border-color: #6c757d;
+    color: #6c757d;
+}
+
+.card-footer .text-muted {
+    margin: 0;
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+/* Enhanced pagination for smaller cards */
+.card-footer.d-flex {
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Hover effects for pagination buttons */
+.card-footer .btn i {
+    font-size: 0.75rem;
+}
+
+/* Ensure pagination is properly visible when shown */
+#recentLogsPagination,
+#recentAuditLogsPagination {
+    border-radius: 0 0 12px 12px;
+}
+
+/* Pagination text styling */
+#recentLogsPagination .text-muted,
+#recentAuditLogsPagination .text-muted {
+    font-weight: 500;
+}

@@ -51,6 +51,16 @@ public class ERPPlatformMenuContributor : IMenuContributor
             )
         );
 
+        context.Menu.AddItem(
+            new ApplicationMenuItem(
+                ERPPlatformMenus.LogAnalytics,
+                l["Menu:LogAnalytics"],
+                "~/log-analytics/dashboard",
+                icon: "fas fa-chart-line",
+                order: 1
+            )
+        );
+
         if (MultiTenancyConsts.IsEnabled)
         {
             administration.SetSubItemOrder(TenantManagementMenuNames.GroupName, 1);
