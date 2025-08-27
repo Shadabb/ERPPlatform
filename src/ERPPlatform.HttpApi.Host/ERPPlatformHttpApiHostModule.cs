@@ -48,6 +48,12 @@ namespace ERPPlatform;
 )]
 public class ERPPlatformHttpApiHostModule : AbpModule
 {
+    public override void PreConfigureServices(ServiceConfigurationContext context)
+    {
+        // Fix PostgreSQL DateTime issues with UTC
+        AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+    }
+
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
         var configuration = context.Services.GetConfiguration();

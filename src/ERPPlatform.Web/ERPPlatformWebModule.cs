@@ -71,6 +71,9 @@ public class ERPPlatformWebModule : AbpModule
 {
     public override void PreConfigureServices(ServiceConfigurationContext context)
     {
+        // Fix PostgreSQL DateTime issues with UTC
+        AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
         context.Services.PreConfigure<AbpMvcDataAnnotationsLocalizationOptions>(options =>
         {
             options.AddAssemblyResource(

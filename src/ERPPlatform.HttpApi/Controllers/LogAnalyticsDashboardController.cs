@@ -36,7 +36,8 @@ public class LogAnalyticsDashboardController : AbpControllerBase
         [FromQuery] DateTime fromDate,
         [FromQuery] DateTime toDate)
     {
-        var dashboard = await _logAnalyticsService.GetDashboardDataByRangeAsync(fromDate, toDate);
+        var request = new DashboardRangeRequestDto { FromDate = fromDate, ToDate = toDate };
+        var dashboard = await _logAnalyticsService.GetDashboardDataByRangeAsync(request);
         return Ok(dashboard);
     }
 
@@ -61,47 +62,6 @@ public class LogAnalyticsDashboardController : AbpControllerBase
         return Ok(applications);
     }
 
-    /// <summary>
-    /// Get list of available log levels
-    /// </summary>
-    [HttpGet("log-levels")]
-    public async Task<ActionResult<List<string>>> GetLogLevelsAsync()
-    {
-        var logLevels = await _logAnalyticsService.GetLogLevelsAsync();
-        return Ok(logLevels);
-    }
-
-    /// <summary>
-    /// Get top errors
-    /// </summary>
-    [HttpGet("top-errors")]
-    public async Task<ActionResult<List<TopErrorDto>>> GetTopErrorsAsync([FromQuery] int count = 10)
-    {
-        var errors = await _logAnalyticsService.GetTopErrorsAsync(count);
-        return Ok(errors);
-    }
-
-    /// <summary>
-    /// Get performance metrics
-    /// </summary>
-    [HttpGet("performance-metrics")]
-    public async Task<ActionResult<List<PerformanceMetricDto>>> GetPerformanceMetricsAsync([FromQuery] int count = 10)
-    {
-        var metrics = await _logAnalyticsService.GetPerformanceMetricsAsync(count);
-        return Ok(metrics);
-    }
-
-    /// <summary>
-    /// Get hourly log trends
-    /// </summary>
-    [HttpGet("hourly-trends")]
-    public async Task<ActionResult<List<HourlyLogCountDto>>> GetHourlyTrendsAsync(
-        [FromQuery] DateTime fromDate,
-        [FromQuery] DateTime toDate)
-    {
-        var trends = await _logAnalyticsService.GetHourlyTrendsAsync(fromDate, toDate);
-        return Ok(trends);
-    }
 
     /// <summary>
     /// Get system health status
@@ -121,7 +81,8 @@ public class LogAnalyticsDashboardController : AbpControllerBase
         [FromQuery] int skip = 0,
         [FromQuery] int take = 20)
     {
-        var result = await _logAnalyticsService.GetRecentLogsPaginatedAsync(skip, take);
+        var request = new RecentLogsRequestDto { Skip = skip, Take = take };
+        var result = await _logAnalyticsService.GetRecentLogsAsync(request);
         return Ok(result);
     }
 
@@ -134,7 +95,18 @@ public class LogAnalyticsDashboardController : AbpControllerBase
         [FromBody] LogSearchRequestDto request,
         [FromQuery] string format = "csv")
     {
-        var data = await _logAnalyticsService.ExportLogsAsync(request, format);
+        var exportRequest = new ExportLogsRequestDto 
+        { 
+            FromDate = request.FromDate,
+            ToDate = request.ToDate,
+            LogLevels = request.LogLevels,
+            Applications = request.Applications,
+            SearchText = request.SearchText,
+            UserId = request.UserId,
+            Category = request.Category,
+            Format = format 
+        };
+        var data = await _logAnalyticsService.ExportLogsAsync(exportRequest);
         
         var fileName = $"logs_export_{DateTime.UtcNow:yyyyMMdd_HHmmss}.{format.ToLower()}";
         var contentType = format.ToLower() == "json" ? "application/json" : "text/csv";
@@ -152,7 +124,8 @@ public class LogAnalyticsDashboardController : AbpControllerBase
         [FromQuery] DateTime fromDate,
         [FromQuery] DateTime toDate)
     {
-        var statistics = await _logAnalyticsService.GetAuditLogStatisticsAsync(fromDate, toDate);
+        var request = new AuditLogSearchRequestDto { FromDate = fromDate, ToDate = toDate };
+        var statistics = await _logAnalyticsService.GetAuditLogStatisticsAsync(request);
         return Ok(statistics);
     }
 
@@ -172,7 +145,8 @@ public class LogAnalyticsDashboardController : AbpControllerBase
     [HttpGet("audit-logs/recent")]
     public async Task<ActionResult<List<RecentAuditLogDto>>> GetRecentAuditLogsAsync([FromQuery] int count = 20)
     {
-        var auditLogs = await _logAnalyticsService.GetRecentAuditLogsAsync(count);
+        var request = new RecentAuditLogsRequestDto { Take = count };
+        var auditLogs = await _logAnalyticsService.GetRecentAuditLogsAsync(request);
         return Ok(auditLogs);
     }
 
@@ -184,7 +158,8 @@ public class LogAnalyticsDashboardController : AbpControllerBase
         [FromQuery] int skip = 0,
         [FromQuery] int take = 20)
     {
-        var result = await _logAnalyticsService.GetRecentAuditLogsPaginatedAsync(skip, take);
+        var request = new RecentAuditLogsRequestDto { Skip = skip, Take = take };
+        var result = await _logAnalyticsService.GetRecentAuditLogsAsync(request);
         return Ok(result);
     }
 
@@ -194,7 +169,8 @@ public class LogAnalyticsDashboardController : AbpControllerBase
     [HttpGet("audit-logs/top-users")]
     public async Task<ActionResult<List<TopUserActivityDto>>> GetTopUserActivitiesAsync([FromQuery] int count = 10)
     {
-        var activities = await _logAnalyticsService.GetTopUserActivitiesAsync(count);
+        var request = new TopUserActivitiesRequestDto { Count = count };
+        var activities = await _logAnalyticsService.GetTopUserActivitiesAsync(request);
         return Ok(activities);
     }
 
@@ -204,7 +180,8 @@ public class LogAnalyticsDashboardController : AbpControllerBase
     [HttpGet("audit-logs/top-methods")]
     public async Task<ActionResult<List<AuditLogMethodCountDto>>> GetTopAuditMethodsAsync([FromQuery] int count = 10)
     {
-        var methods = await _logAnalyticsService.GetTopAuditMethodsAsync(count);
+        var request = new TopAuditMethodsRequestDto { Count = count };
+        var methods = await _logAnalyticsService.GetTopAuditMethodsAsync(request);
         return Ok(methods);
     }
 
@@ -216,7 +193,21 @@ public class LogAnalyticsDashboardController : AbpControllerBase
         [FromBody] AuditLogSearchRequestDto request,
         [FromQuery] string format = "csv")
     {
-        var data = await _logAnalyticsService.ExportAuditLogsAsync(request, format);
+        var exportRequest = new ExportAuditLogsRequestDto 
+        { 
+            FromDate = request.FromDate,
+            ToDate = request.ToDate,
+            UserId = request.UserId,
+            ServiceName = request.ServiceName,
+            MethodName = request.MethodName,
+            HttpMethod = request.HttpMethod,
+            MinDuration = request.MinDuration,
+            MaxDuration = request.MaxDuration,
+            HasException = request.HasException,
+            ClientIp = request.ClientIp,
+            Format = format 
+        };
+        var data = await _logAnalyticsService.ExportAuditLogsAsync(exportRequest);
         
         var fileName = $"audit_logs_export_{DateTime.UtcNow:yyyyMMdd_HHmmss}.{format.ToLower()}";
         var contentType = format.ToLower() == "json" ? "application/json" : "text/csv";

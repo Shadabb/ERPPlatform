@@ -11,6 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="..\ERPPlatform.Domain\ERPPlatform.Domain.csproj" />
     <ProjectReference Include="..\ERPPlatform.Application.Contracts\ERPPlatform.Application.Contracts.csproj" />
+    <ProjectReference Include="..\ERPPlatform.EntityFrameworkCore\ERPPlatform.EntityFrameworkCore.csproj" />
   </ItemGroup>
 
   <ItemGroup>

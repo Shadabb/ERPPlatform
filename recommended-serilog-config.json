@@ -1,0 +1,129 @@
+{
+  "Serilog": {
+    "Using": [
+      "Serilog.Sinks.File",
+      "Serilog.Sinks.Console",
+      "Serilog.Sinks.Async",
+      "Serilog.Sinks.PostgreSQL",
+      "Serilog.Enrichers.Thread",
+      "Serilog.Enrichers.Environment",
+      "Serilog.Enrichers.Process"
+    ],
+    "MinimumLevel": {
+      "Default": "Information",
+      "Override": {
+        "Microsoft": "Warning",
+        "Microsoft.EntityFrameworkCore": "Warning",
+        "Microsoft.AspNetCore": "Information",
+        "System": "Warning",
+        "ERPPlatform": "Information"
+      }
+    },
+    "WriteTo": [
+      {
+        "Name": "Async",
+        "Args": {
+          "configure": [
+            {
+              "Name": "Console",
+              "Args": {
+                "restrictedToMinimumLevel": "Information",
+                "outputTemplate": "[{Timestamp:HH:mm:ss} {Level:u3}] {SourceContext}: {Message:lj} {Properties:j}{NewLine}{Exception}"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "Name": "Async",
+        "Args": {
+          "configure": [
+            {
+              "Name": "File",
+              "Args": {
+                "path": "Logs/app-.json",
+                "formatter": "Serilog.Formatting.Json.JsonFormatter",
+                "rollingInterval": "Day",
+                "rollOnFileSizeLimit": true,
+                "fileSizeLimitBytes": 50485760,
+                "retainedFileCountLimit": 90,
+                "restrictedToMinimumLevel": "Information"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "Name": "Async",
+        "Args": {
+          "configure": [
+            {
+              "Name": "File",
+              "Args": {
+                "path": "Logs/errors-.json",
+                "formatter": "Serilog.Formatting.Json.JsonFormatter",
+                "rollingInterval": "Day",
+                "rollOnFileSizeLimit": true,
+                "fileSizeLimitBytes": 10485760,
+                "retainedFileCountLimit": 365,
+                "restrictedToMinimumLevel": "Warning"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "Name": "PostgreSQL",
+        "Args": {
+          "connectionString": "Host=localhost;Port=5432;Database=ERPPlatform;User ID=postgres;Password=Softage@123456;",
+          "tableName": "ApplicationLogs",
+          "autoCreateSqlTable": true,
+          "restrictedToMinimumLevel": "Warning",
+          "needAutoCreateTable": true,
+          "columnOptions": {
+            "customColumns": [
+              {
+                "ColumnName": "UserId",
+                "DataType": "varchar(50)",
+                "AllowNull": true
+              },
+              {
+                "ColumnName": "RequestId", 
+                "DataType": "varchar(100)",
+                "AllowNull": true
+              },
+              {
+                "ColumnName": "CorrelationId",
+                "DataType": "varchar(100)", 
+                "AllowNull": true
+              },
+              {
+                "ColumnName": "UserAgent",
+                "DataType": "text",
+                "AllowNull": true
+              },
+              {
+                "ColumnName": "ClientIp",
+                "DataType": "varchar(45)",
+                "AllowNull": true
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "Enrich": [
+      "FromLogContext",
+      "WithMachineName", 
+      "WithEnvironmentName",
+      "WithProcessId",
+      "WithProcessName",
+      "WithThreadId",
+      "WithCorrelationId"
+    ],
+    "Properties": {
+      "Application": "ERPPlatform",
+      "Environment": "Production"
+    }
+  }
+}

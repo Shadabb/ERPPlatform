@@ -4,6 +4,8 @@
     "AppName": "ERPPlatform",
     "Menu:Home": "Home",
     "Menu:LogAnalytics": "Log Analytics",
+    "Menu:AuditLogsDashboard": "Audit Logs Dashboard",
+    "Menu:SerilogDashboard": "Serilog Analytics Dashboard",
     "Welcome": "Welcome",
     "LongWelcomeMessage": "Welcome to the application. This is a startup project based on the ABP framework. For more information, visit abp.io."
   }

@@ -51,15 +51,36 @@ public class ERPPlatformMenuContributor : IMenuContributor
             )
         );
 
-        context.Menu.AddItem(
+        // Add Log Analytics with sub-menu for both ABP Audit Logs and Serilog Analytics
+        var logAnalyticsMenu = new ApplicationMenuItem(
+            ERPPlatformMenus.LogAnalytics,
+            l["Menu:LogAnalytics"],
+            "#",
+            icon: "fas fa-chart-line",
+            order: 1
+        );
+
+        logAnalyticsMenu.AddItem(
             new ApplicationMenuItem(
-                ERPPlatformMenus.LogAnalytics,
-                l["Menu:LogAnalytics"],
+                "LogAnalytics.AuditDashboard",
+                l["Menu:AuditLogsDashboard"],
                 "~/log-analytics/dashboard",
-                icon: "fas fa-chart-line",
+                icon: "fas fa-users-cog",
                 order: 1
             )
         );
+
+        logAnalyticsMenu.AddItem(
+            new ApplicationMenuItem(
+                "LogAnalytics.SerilogDashboard",
+                l["Menu:SerilogDashboard"],
+                "~/log-analytics/serilog-dashboard",
+                icon: "fas fa-server",
+                order: 2
+            )
+        );
+
+        context.Menu.AddItem(logAnalyticsMenu);
 
         if (MultiTenancyConsts.IsEnabled)
         {

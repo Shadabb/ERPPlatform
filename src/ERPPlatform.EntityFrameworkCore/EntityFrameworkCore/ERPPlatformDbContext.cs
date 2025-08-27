@@ -1,4 +1,7 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using System;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 using Volo.Abp.AuditLogging.EntityFrameworkCore;
 using Volo.Abp.BackgroundJobs.EntityFrameworkCore;
 using Volo.Abp.Data;
@@ -12,6 +15,7 @@ using Volo.Abp.PermissionManagement.EntityFrameworkCore;
 using Volo.Abp.SettingManagement.EntityFrameworkCore;
 using Volo.Abp.TenantManagement;
 using Volo.Abp.TenantManagement.EntityFrameworkCore;
+using ERPPlatform.LogAnalytics;
 
 namespace ERPPlatform.EntityFrameworkCore;
 
@@ -53,10 +57,47 @@ public class ERPPlatformDbContext :
 
     #endregion
 
+    #region Log Analytics
+
+    // Serilog ApplicationLogs table (created by Serilog PostgreSQL sink)
+    public DbSet<ApplicationLog> ApplicationLogs { get; set; }
+
+    #endregion
+
     public ERPPlatformDbContext(DbContextOptions<ERPPlatformDbContext> options)
         : base(options)
     {
 
+    }
+
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        ConvertUtcDateTimesToUnspecified();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        ConvertUtcDateTimesToUnspecified();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    private void ConvertUtcDateTimesToUnspecified()
+    {
+        var entries = ChangeTracker.Entries();
+        foreach (var entry in entries)
+        {
+            if (entry.State == EntityState.Added || entry.State == EntityState.Modified)
+            {
+                foreach (var property in entry.Properties)
+                {
+                    if (property.CurrentValue is DateTime dateTime && dateTime.Kind == DateTimeKind.Utc)
+                    {
+                        property.CurrentValue = DateTime.SpecifyKind(dateTime, DateTimeKind.Unspecified);
+                    }
+                }
+            }
+        }
     }
 
     protected override void OnModelCreating(ModelBuilder builder)
