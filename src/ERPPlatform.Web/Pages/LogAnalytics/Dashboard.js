@@ -27,6 +27,11 @@ class LogAnalyticsDashboard {
             searchRequest: null
         };
         
+        // Search locks to prevent concurrent execution
+        this.auditSearchInProgress = false;
+        this.logSearchInProgress = false;
+        this.paginationInProgress = false;
+        
         // Recent Logs search context for pagination
         this.recentLogsSearchContext = {
             searchRequest: null,
@@ -196,17 +201,25 @@ class LogAnalyticsDashboard {
     async loadApplications() {
         try {
             const response = await fetch('/api/log-analytics/applications');
-            const applications = await response.json();
+            const result = await response.json();
+            
+            console.log('Applications data:', result);
             
             const select = document.getElementById('applications');
             select.innerHTML = '';
             
-            applications.forEach(app => {
-                const option = document.createElement('option');
-                option.value = app;
-                option.textContent = app;
-                select.appendChild(option);
-            });
+            // The API returns {applications: [...], lastUpdated: "..."}
+            if (result.applications && Array.isArray(result.applications)) {
+                result.applications.forEach(app => {
+                    const option = document.createElement('option');
+                    option.value = app;
+                    option.textContent = app;
+                    select.appendChild(option);
+                });
+                console.log(`Loaded ${result.applications.length} applications`);
+            } else {
+                console.warn('No applications found in response:', result);
+            }
         } catch (error) {
             console.error('Failed to load applications:', error);
         }
@@ -627,7 +640,7 @@ class LogAnalyticsDashboard {
         // Update pagination data with search results
         // Note: API returns 'page' not 'currentPage'
         const currentPage = result.page || result.currentPage || 1;
-        this.paginationData.recentLogs.data = result.logs || [];
+        this.paginationData.recentLogs.data = result.items || [];
         this.paginationData.recentLogs.currentSkip = (currentPage - 1) * result.pageSize;
         this.paginationData.recentLogs.totalCount = result.totalCount || 0;
         this.paginationData.recentLogs.hasMore = currentPage < result.totalPages;
@@ -924,15 +937,28 @@ class LogAnalyticsDashboard {
         document.getElementById('fromDate').setAttribute('max', maxDateTime);
         document.getElementById('toDate').setAttribute('max', maxDateTime);
         
+        // Load applications data when modal is shown
+        this.loadApplications();
+        
         this.safeShowModal('logSearchModal');
     }
 
     async searchLogs() {
+        console.log('=== SEARCH LOGS CALLED ===');
+        
+        // Prevent concurrent searches
+        if (this.logSearchInProgress) {
+            console.log('Log search already in progress, ignoring request');
+            return;
+        }
+        
         // Validate date range first
         if (!this.validateDateRange()) {
             console.log('Date validation failed, cannot proceed with search');
             return;
         }
+        
+        this.logSearchInProgress = true;
         
         const form = document.getElementById('logSearchForm');
         const formData = new FormData(form);
@@ -960,13 +986,25 @@ class LogAnalyticsDashboard {
                 headers['RequestVerificationToken'] = token;
             }
 
+            console.log('Sending search request:', searchRequest);
+            console.log('Request headers:', headers);
+            
             const response = await fetch('/api/log-analytics/search', {
                 method: 'POST',
                 headers: headers,
                 body: JSON.stringify(searchRequest)
             });
 
+            console.log('Search response status:', response.status);
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('Search API error:', response.status, errorText);
+                throw new Error(`Search failed: ${response.status} - ${errorText}`);
+            }
+
             const result = await response.json();
+            console.log('Search result:', result);
             
             // Store search context for pagination
             this.recentLogsSearchContext = {
@@ -982,6 +1020,8 @@ class LogAnalyticsDashboard {
         } catch (error) {
             console.error('Search failed:', error);
             this.showError('Search failed');
+        } finally {
+            this.logSearchInProgress = false;
         }
     }
 
@@ -1233,6 +1273,15 @@ class LogAnalyticsDashboard {
         console.log('Current pageSize:', this.auditSearchState.pageSize);
         console.log('Call stack:', new Error().stack);
         
+        // Prevent concurrent searches
+        if (this.auditSearchInProgress) {
+            console.log('Audit search already in progress, ignoring request');
+            return;
+        }
+        
+        this.auditSearchInProgress = true;
+        this.disableAuditPaginationButtons();
+        
         try {
             // Validate date range first (only on first search, not pagination, and only if dates are provided)
             if (pageNumber === 1) {
@@ -1320,7 +1369,7 @@ class LogAnalyticsDashboard {
             
             console.log('=== AUDIT SEARCH DEBUG ===');
             console.log('Page:', pageNumber, 'PageSize:', this.auditSearchState.pageSize);
-            console.log('AuditLogs count received:', result.auditLogs ? result.auditLogs.length : 0);
+            console.log('AuditLogs count received:', result.items ? result.items.length : 0);
             console.log('TotalCount:', result.totalCount, 'TotalPages:', result.totalPages);
             console.log('Response result:', result);
             
@@ -1365,6 +1414,9 @@ class LogAnalyticsDashboard {
         } catch (error) {
             console.error('Error searching audit logs:', error);
             alert('Error searching audit logs: ' + error.message);
+        } finally {
+            this.auditSearchInProgress = false;
+            this.enableAuditPaginationButtons();
         }
     }
 
@@ -1375,10 +1427,10 @@ class LogAnalyticsDashboard {
         console.log('Container element found:', !!container);
         console.log('Container current children count:', container ? container.children.length : 'N/A');
         console.log('Result object:', result);
-        console.log('result.auditLogs array:', result.auditLogs);
-        console.log('Results to display:', result.auditLogs ? result.auditLogs.length : 0);
+        console.log('result.items array:', result.items);
+        console.log('Results to display:', result.items ? result.items.length : 0);
         
-        if (!result.auditLogs || result.auditLogs.length === 0) {
+        if (!result.items || result.items.length === 0) {
             container.innerHTML = '<div class="alert alert-info">No audit logs found matching your search criteria.</div>';
             return;
         }
@@ -1403,7 +1455,7 @@ class LogAnalyticsDashboard {
                     <tbody>
         `;
 
-        result.auditLogs.forEach(log => {
+        result.items.forEach(log => {
             const statusClass = log.hasException ? 'text-danger' : 'text-success';
             const statusIcon = log.hasException ? 'fas fa-times' : 'fas fa-check';
             
@@ -1481,15 +1533,54 @@ class LogAnalyticsDashboard {
     }
 
     async previousAuditSearchPage() {
+        console.log('=== PREVIOUS AUDIT SEARCH PAGE CALLED ===');
+        console.log('Current page:', this.auditSearchState.currentPage);
+        console.log('Search in progress:', this.auditSearchInProgress);
+        
+        if (this.auditSearchInProgress) {
+            console.log('Search already in progress, ignoring previous page request');
+            return;
+        }
+        
         if (this.auditSearchState.currentPage > 1) {
+            console.log('Calling searchAuditLogs for page:', this.auditSearchState.currentPage - 1);
             await this.searchAuditLogs(this.auditSearchState.currentPage - 1);
+        } else {
+            console.log('Already at first page, cannot go to previous');
         }
     }
 
     async nextAuditSearchPage() {
-        if (this.auditSearchState.currentPage < this.auditSearchState.totalPages) {
-            await this.searchAuditLogs(this.auditSearchState.currentPage + 1);
+        console.log('=== NEXT AUDIT SEARCH PAGE CALLED ===');
+        console.log('Current page:', this.auditSearchState.currentPage);
+        console.log('Total pages:', this.auditSearchState.totalPages);
+        console.log('Search in progress:', this.auditSearchInProgress);
+        
+        if (this.auditSearchInProgress) {
+            console.log('Search already in progress, ignoring next page request');
+            return;
         }
+        
+        if (this.auditSearchState.currentPage < this.auditSearchState.totalPages) {
+            console.log('Calling searchAuditLogs for page:', this.auditSearchState.currentPage + 1);
+            await this.searchAuditLogs(this.auditSearchState.currentPage + 1);
+        } else {
+            console.log('Already at last page, cannot go to next');
+        }
+    }
+
+    disableAuditPaginationButtons() {
+        const prevBtn = document.getElementById('auditSearchPrevBtn');
+        const nextBtn = document.getElementById('auditSearchNextBtn');
+        if (prevBtn) prevBtn.disabled = true;
+        if (nextBtn) nextBtn.disabled = true;
+    }
+
+    enableAuditPaginationButtons() {
+        const prevBtn = document.getElementById('auditSearchPrevBtn');
+        const nextBtn = document.getElementById('auditSearchNextBtn');
+        if (prevBtn) prevBtn.disabled = this.auditSearchState.currentPage === 1;
+        if (nextBtn) nextBtn.disabled = this.auditSearchState.currentPage === this.auditSearchState.totalPages;
     }
 
     // Log Search form control functions
@@ -1725,6 +1816,16 @@ class LogAnalyticsDashboard {
 
     // Pagination Methods
     previousPage(section) {
+        console.log('=== PREVIOUS PAGE CALLED ===');
+        console.log('Section:', section);
+        console.log('Pagination in progress:', this.paginationInProgress);
+        
+        if (this.paginationInProgress) {
+            console.log('Pagination already in progress, ignoring request');
+            return;
+        }
+        
+        this.paginationInProgress = true;
         const pagData = this.paginationData[section];
         
         // Handle server-side pagination for logs
@@ -1751,9 +1852,21 @@ class LogAnalyticsDashboard {
                 this.renderPaginatedContent(section);
             }
         }
+        
+        this.paginationInProgress = false;
     }
 
     nextPage(section) {
+        console.log('=== NEXT PAGE CALLED ===');
+        console.log('Section:', section);
+        console.log('Pagination in progress:', this.paginationInProgress);
+        
+        if (this.paginationInProgress) {
+            console.log('Pagination already in progress, ignoring request');
+            return;
+        }
+        
+        this.paginationInProgress = true;
         const pagData = this.paginationData[section];
         
         // Handle server-side pagination for logs
@@ -1783,6 +1896,8 @@ class LogAnalyticsDashboard {
                 this.renderPaginatedContent(section);
             }
         }
+        
+        this.paginationInProgress = false;
     }
 
     renderPaginatedContent(section) {

@@ -2,196 +2,843 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
-using Volo.Abp.Application.Services;
 using System.Text.Json;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Volo.Abp;
+using Volo.Abp.Application.Services;
 using Volo.Abp.AuditLogging;
 using Volo.Abp.Domain.Repositories;
-using Microsoft.Extensions.Logging;
+using ERPPlatform.LogAnalytics.Helpers;
 
 namespace ERPPlatform.LogAnalytics;
 
+/// <summary>
+/// Clean implementation of log analytics dashboard service following ABP standards
+/// </summary>
 public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalyticsDashboardAppService
 {
     private readonly IRepository<AuditLog, Guid> _auditLogRepository;
+    private readonly LogAnalyticsDashboardHelper _dashboardHelper;
 
-    public LogAnalyticsDashboardAppService(IRepository<AuditLog, Guid> auditLogRepository)
+    public LogAnalyticsDashboardAppService(
+        IRepository<AuditLog, Guid> auditLogRepository,
+        LogAnalyticsDashboardHelper dashboardHelper)
     {
         _auditLogRepository = auditLogRepository;
+        _dashboardHelper = dashboardHelper;
     }
+
+    #region Dashboard Operations
 
     public async Task<LogAnalyticsDashboardDto> GetDashboardDataAsync()
     {
-        var endDate = DateTime.UtcNow;
-        var startDate = endDate.AddDays(-7); // Last 7 days
-        return await GetDashboardDataByRangeAsync(startDate, endDate);
+        var request = new DashboardRangeRequestDto
+        {
+            FromDate = DateTime.UtcNow.AddDays(-LogAnalyticsDashboardConstants.DefaultValues.DefaultDashboardDays),
+            ToDate = DateTime.UtcNow,
+            TopCount = LogAnalyticsDashboardConstants.DefaultValues.DefaultTopCount
+        };
+        
+        return await GetDashboardDataByRangeAsync(request);
     }
 
-    public async Task<LogAnalyticsDashboardDto> GetDashboardDataByRangeAsync(DateTime fromDate, DateTime toDate)
+    public async Task<LogAnalyticsDashboardDto> GetDashboardDataByRangeAsync(DashboardRangeRequestDto request)
     {
-        var dashboard = new LogAnalyticsDashboardDto();
+        Check.NotNull(request, nameof(request));
+        
+        var (fromDate, toDate) = _dashboardHelper.ValidateDateRange(
+            request.FromDate, 
+            request.ToDate, 
+            LogAnalyticsDashboardConstants.DefaultValues.DefaultDashboardDays);
 
-        // Execute queries sequentially to avoid DbContext concurrency issues
-        dashboard.AuditStatistics = await GetAuditLogStatisticsAsync(fromDate, toDate);
-        dashboard.Statistics = await GetStatisticsAsync(fromDate, toDate);
-        dashboard.LogLevelCounts = await GetLogLevelCountsAsync(fromDate, toDate);
-        dashboard.ApplicationCounts = await GetApplicationCountsAsync(fromDate, toDate);
-        dashboard.HourlyCounts = await GetHourlyTrendsAsync(fromDate, toDate);
-        dashboard.RecentLogs = await GetRecentLogsAsync(20);
-        dashboard.TopErrors = await GetTopErrorsAsync(10);
-        dashboard.PerformanceMetrics = await GetPerformanceMetricsAsync(10);
-        dashboard.RecentAuditLogs = await GetRecentAuditLogsAsync(20);
-        dashboard.TopUserActivities = await GetTopUserActivitiesAsync(10);
-        dashboard.TopAuditMethods = await GetTopAuditMethodsAsync(10);
+        Logger.LogInformation("Getting dashboard data for range {FromDate} to {ToDate}", fromDate, toDate);
 
-        return dashboard;
+        try
+        {
+            var dashboard = new LogAnalyticsDashboardDto();
+
+            // Get base audit statistics first
+            var auditStatsRequest = new AuditLogSearchRequestDto { FromDate = fromDate, ToDate = toDate };
+            dashboard.AuditStatistics = await GetAuditLogStatisticsAsync(auditStatsRequest);
+            dashboard.Statistics = await GetLogStatisticsAsync(fromDate, toDate);
+
+            // Get dashboard components sequentially to avoid DbContext concurrency issues
+            dashboard.LogLevelCounts = await GetLogLevelCountsAsync(fromDate, toDate);
+            dashboard.ApplicationCounts = await GetApplicationCountsAsync(fromDate, toDate);
+            dashboard.RecentLogs = await GetRecentLogsForDashboardAsync(20);
+            dashboard.TopErrors = await GetTopErrorsAsync(request.TopCount);
+            dashboard.RecentAuditLogs = await GetRecentAuditLogsForDashboardAsync(20);
+            dashboard.TopUserActivities = await GetTopUserActivitiesForDashboardAsync(request.TopCount);
+            dashboard.TopAuditMethods = await GetTopAuditMethodsForDashboardAsync(request.TopCount);
+
+            if (request.IncludeHourlyTrends)
+            {
+                dashboard.HourlyCounts = await GetHourlyTrendsAsync(fromDate, toDate);
+            }
+
+            if (request.IncludePerformanceMetrics)
+            {
+                dashboard.PerformanceMetrics = await GetPerformanceMetricsAsync(request.TopCount);
+            }
+
+            Logger.LogInformation("Dashboard data generated successfully with {TotalLogs} total audit logs", 
+                dashboard.AuditStatistics.TotalAuditLogs);
+
+            return dashboard;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error generating dashboard data for range {FromDate} to {ToDate}", fromDate, toDate);
+            throw new UserFriendlyException("Failed to generate dashboard data. Please try again.");
+        }
     }
+
+    public async Task<SystemHealthDto> GetSystemHealthAsync()
+    {
+        try
+        {
+            // Convert DateTime to unspecified kind to avoid PostgreSQL issues
+            var oneHourAgo = DateTime.UtcNow.AddHours(-1);
+            var oneHourAgoUnspecified = DateTime.SpecifyKind(oneHourAgo, DateTimeKind.Unspecified);
+            
+            var recentLogs = await _auditLogRepository.GetListAsync(
+                x => x.ExecutionTime >= oneHourAgoUnspecified,
+                includeDetails: true);
+
+            var recentErrors = recentLogs.Count(x => !string.IsNullOrEmpty(x.Exceptions));
+            var recentCritical = recentLogs.Count(x => !string.IsNullOrEmpty(x.Exceptions) && x.HttpStatusCode >= 500);
+            var avgResponseTime = recentLogs.Any() ? recentLogs.Average(x => (double)x.ExecutionDuration) : 0;
+
+            var status = _dashboardHelper.GetHealthStatus(recentErrors, recentCritical, avgResponseTime);
+
+            return new SystemHealthDto
+            {
+                Status = status,
+                RecentErrors = recentErrors,
+                RecentCritical = recentCritical,
+                AvgResponseTime = Math.Round(avgResponseTime, 2),
+                AdditionalInfo = new Dictionary<string, object>
+                {
+                    ["TotalRecentLogs"] = recentLogs.Count,
+                    ["SuccessfulOperations"] = recentLogs.Count - recentErrors,
+                    ["CheckPeriod"] = "Last 1 hour"
+                }
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error getting system health");
+            return new SystemHealthDto
+            {
+                Status = LogAnalyticsDashboardConstants.HealthStatus.Unknown,
+                AdditionalInfo = new Dictionary<string, object>
+                {
+                    ["Error"] = "Unable to determine system health"
+                }
+            };
+        }
+    }
+
+    public async Task<ApplicationsListDto> GetApplicationsAsync()
+    {
+        try
+        {
+            var auditLogs = await _auditLogRepository.GetListAsync(includeDetails: true);
+
+            var applications = auditLogs
+                .Where(x => x.Actions != null && x.Actions.Any())
+                .SelectMany(x => x.Actions!)
+                .Select(a => _dashboardHelper.GetApplicationNameFromService(a.ServiceName))
+                .Distinct()
+                .Where(app => !string.IsNullOrWhiteSpace(app))
+                .OrderBy(app => app)
+                .ToList();
+
+            if (!applications.Any())
+            {
+                applications.Add(LogAnalyticsDashboardConstants.Applications.Application);
+            }
+
+            return new ApplicationsListDto
+            {
+                Applications = applications
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error getting applications list");
+            return new ApplicationsListDto
+            {
+                Applications = new List<string> { LogAnalyticsDashboardConstants.Applications.Application }
+            };
+        }
+    }
+
+    #endregion
+
+    #region Log Search and Export
 
     public async Task<LogSearchResponseDto> SearchLogsAsync(LogSearchRequestDto request)
     {
-        // Debug logging
-        Logger.LogInformation("SearchLogsAsync called with FromDate: {FromDate}, ToDate: {ToDate}", 
-            request.FromDate, request.ToDate);
-
-        // Get real audit log data instead of mock data
-        var auditLogsWithActions = await _auditLogRepository.GetListAsync(includeDetails: true);
-        Logger.LogInformation("Retrieved {Count} audit logs from database", auditLogsWithActions.Count);
+        Check.NotNull(request, nameof(request));
         
-        // Convert audit logs to recent log format for consistency
-        var allLogs = auditLogsWithActions
-            .SelectMany(auditLog => auditLog.Actions?.Select(action => new RecentLogEntryDto
+        request.ValidateAndSetDefaults();
+
+        Logger.LogInformation("Searching logs with filters: FromDate={FromDate}, ToDate={ToDate}, Page={Page}, PageSize={PageSize}",
+            request.FromDate, request.ToDate, request.Page, request.PageSize);
+
+        try
+        {
+            var auditLogs = await _auditLogRepository.GetListAsync(includeDetails: true);
+
+            // Convert audit logs to log entries
+            var allLogs = auditLogs
+                .SelectMany(auditLog => auditLog.Actions?.Select(action => new RecentLogEntryDto
+                {
+                    Timestamp = auditLog.ExecutionTime,
+                    Level = _dashboardHelper.GetLogLevelFromAuditLog(!string.IsNullOrEmpty(auditLog.Exceptions), auditLog.HttpStatusCode),
+                    Application = _dashboardHelper.GetApplicationNameFromService(action.ServiceName),
+                    Message = $"{action.ServiceName}.{action.MethodName}",
+                    UserId = auditLog.UserId?.ToString(),
+                    Exception = auditLog.Exceptions,
+                    HasException = !string.IsNullOrEmpty(auditLog.Exceptions),
+                    HttpStatusCode = auditLog.HttpStatusCode,
+                    ExecutionDuration = auditLog.ExecutionDuration,
+                    ServiceName = action.ServiceName,
+                    MethodName = action.MethodName,
+                    Properties = new Dictionary<string, object>
+                    {
+                        ["Duration"] = auditLog.ExecutionDuration,
+                        ["HttpStatusCode"] = auditLog.HttpStatusCode ?? 0,
+                        ["ClientIp"] = auditLog.ClientIpAddress ?? "Unknown"
+                    }
+                }) ?? new List<RecentLogEntryDto>())
+                .AsQueryable();
+
+            // Apply filters
+            allLogs = ApplyLogSearchFilters(allLogs, request);
+
+            var totalCount = allLogs.Count();
+            var pagedLogs = allLogs
+                .OrderByDescending(l => l.Timestamp)
+                .Skip((request.Page - 1) * request.PageSize)
+                .Take(request.PageSize)
+                .ToList();
+
+            Logger.LogInformation("Log search completed: {TotalCount} total, {PageCount} in current page", 
+                totalCount, pagedLogs.Count);
+
+            return new LogSearchResponseDto(totalCount, pagedLogs, request.Page, request.PageSize);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error searching logs");
+            throw new UserFriendlyException("Failed to search logs. Please try again.");
+        }
+    }
+
+    public async Task<byte[]> ExportLogsAsync(ExportLogsRequestDto request)
+    {
+        Check.NotNull(request, nameof(request));
+        
+        request = _dashboardHelper.ValidateExportRequest(request);
+
+        Logger.LogInformation("Exporting logs in {Format} format with {MaxRecords} max records", 
+            request.Format, request.MaxRecords);
+
+        try
+        {
+            var searchRequest = new LogSearchRequestDto
             {
-                Timestamp = auditLog.ExecutionTime,
-                Level = !string.IsNullOrEmpty(auditLog.Exceptions) ? "Error" : "Information",
-                Application = GetApplicationNameFromService(action.ServiceName),
-                Message = $"{action.ServiceName}.{action.MethodName}",
-                UserId = auditLog.UserId?.ToString(),
-                Exception = !string.IsNullOrEmpty(auditLog.Exceptions) ? auditLog.Exceptions : null,
-                HasException = !string.IsNullOrEmpty(auditLog.Exceptions),
-                HttpStatusCode = auditLog.HttpStatusCode,
-                ExecutionDuration = auditLog.ExecutionDuration,
-                ServiceName = action.ServiceName,
-                MethodName = action.MethodName
-            }) ?? new List<RecentLogEntryDto>())
-            .AsQueryable();
+                FromDate = request.FromDate,
+                ToDate = request.ToDate,
+                LogLevels = request.LogLevels,
+                Applications = request.Applications,
+                SearchText = request.SearchText,
+                UserId = request.UserId,
+                Category = request.Category,
+                Page = 1,
+                PageSize = request.MaxRecords
+            };
 
-        Logger.LogInformation("Converted to {Count} log entries after mapping", allLogs.Count());
+            var searchResult = await SearchLogsAsync(searchRequest);
 
-        // Log sample timestamps before filtering
-        var sampleLogs = allLogs.Take(3).ToList();
-        foreach (var log in sampleLogs)
-        {
-            Logger.LogInformation("Sample log timestamp: {Timestamp}", log.Timestamp);
+            return request.Format.ToLower() switch
+            {
+                LogAnalyticsDashboardConstants.ExportFormats.Json => await ExportLogsAsJsonAsync(searchResult.Items),
+                LogAnalyticsDashboardConstants.ExportFormats.Csv => await ExportLogsAsCsvAsync(searchResult.Items),
+                _ => await ExportLogsAsCsvAsync(searchResult.Items)
+            };
         }
-
-        // Apply filters
-        if (request.FromDate.HasValue)
+        catch (Exception ex)
         {
-            Logger.LogInformation("Filtering by FromDate: {FromDate}", request.FromDate.Value);
-            allLogs = allLogs.Where(l => l.Timestamp >= request.FromDate.Value);
+            Logger.LogError(ex, "Error exporting logs in {Format} format", request.Format);
+            throw new UserFriendlyException($"Failed to export logs in {request.Format} format. Please try again.");
         }
+    }
+
+    public async Task<PaginatedResponse<RecentLogEntryDto>> GetRecentLogsAsync(RecentLogsRequestDto request)
+    {
+        Check.NotNull(request, nameof(request));
         
-        if (request.ToDate.HasValue)
+        request.ValidateAndSetDefaults();
+
+        try
         {
-            Logger.LogInformation("Filtering by ToDate: {ToDate}", request.ToDate.Value);
-            allLogs = allLogs.Where(l => l.Timestamp <= request.ToDate.Value);
+            var (skip, take) = _dashboardHelper.ValidatePagination(request.Skip, request.Take);
+
+            var auditLogs = await _auditLogRepository.GetListAsync(includeDetails: true);
+
+            var allLogEntries = auditLogs
+                .SelectMany(auditLog => auditLog.Actions?.Select(action => new RecentLogEntryDto
+                {
+                    Timestamp = auditLog.ExecutionTime,
+                    Level = _dashboardHelper.GetLogLevelFromAuditLog(!string.IsNullOrEmpty(auditLog.Exceptions), auditLog.HttpStatusCode),
+                    Application = _dashboardHelper.GetApplicationNameFromService(action.ServiceName),
+                    Message = $"{action.ServiceName}.{action.MethodName}",
+                    UserId = auditLog.UserId?.ToString(),
+                    Exception = auditLog.Exceptions,
+                    HasException = !string.IsNullOrEmpty(auditLog.Exceptions),
+                    HttpStatusCode = auditLog.HttpStatusCode,
+                    ExecutionDuration = auditLog.ExecutionDuration,
+                    ServiceName = action.ServiceName,
+                    MethodName = action.MethodName,
+                    Properties = new Dictionary<string, object>
+                    {
+                        ["Duration"] = auditLog.ExecutionDuration,
+                        ["HttpStatusCode"] = auditLog.HttpStatusCode ?? 0
+                    }
+                }) ?? new List<RecentLogEntryDto>())
+                .OrderByDescending(x => x.Timestamp);
+
+            // Apply filters
+            var filteredLogs = ApplyRecentLogsFilters(allLogEntries.AsQueryable(), request);
+
+            var totalCount = filteredLogs.Count();
+            var paginatedItems = filteredLogs
+                .Skip(skip)
+                .Take(take)
+                .ToList();
+
+            return new PaginatedResponse<RecentLogEntryDto>
+            {
+                Items = paginatedItems,
+                TotalCount = totalCount,
+                Skip = skip,
+                Take = take,
+                HasMore = skip + take < totalCount
+            };
         }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error getting recent logs");
+            throw new UserFriendlyException("Failed to get recent logs. Please try again.");
+        }
+    }
+
+    #endregion
+
+    #region Audit Log Operations
+
+    public async Task<AuditLogStatisticsDto> GetAuditLogStatisticsAsync(AuditLogSearchRequestDto request)
+    {
+        Check.NotNull(request, nameof(request));
+
+        var (fromDate, toDate) = _dashboardHelper.ValidateDateRange(request.FromDate, request.ToDate);
+
+        try
+        {
+            var allAuditLogs = await _auditLogRepository.GetListAsync(includeDetails: true);
+            var filteredLogs = allAuditLogs.Where(x => x.ExecutionTime >= fromDate && x.ExecutionTime <= toDate).ToList();
+            var todayLogs = await _auditLogRepository.CountAsync(x => x.ExecutionTime.Date == DateTime.Today);
+
+            var failedOperations = filteredLogs.Count(x => !string.IsNullOrEmpty(x.Exceptions));
+            var successfulOperations = filteredLogs.Count - failedOperations;
+
+            var avgExecutionDuration = filteredLogs.Any() 
+                ? filteredLogs.Average(x => (double)x.ExecutionDuration) 
+                : 0;
+
+            var uniqueUsers = filteredLogs
+                .Where(x => x.UserId != null)
+                .Select(x => x.UserId)
+                .Distinct()
+                .Count();
+
+            var uniqueServices = filteredLogs
+                .SelectMany(x => x.Actions ?? new List<AuditLogAction>())
+                .Select(x => x.ServiceName)
+                .Where(x => !string.IsNullOrEmpty(x))
+                .Distinct()
+                .Count();
+
+            return new AuditLogStatisticsDto
+            {
+                TotalAuditLogs = allAuditLogs.Count,
+                TodayAuditLogs = todayLogs,
+                SuccessfulOperations = successfulOperations,
+                FailedOperations = failedOperations,
+                AvgExecutionDuration = Math.Round(avgExecutionDuration, 2),
+                UniqueUsers = uniqueUsers,
+                UniqueServices = uniqueServices
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error getting audit log statistics");
+            throw new UserFriendlyException("Failed to get audit log statistics. Please try again.");
+        }
+    }
+
+    public async Task<AuditLogSearchResponseDto> SearchAuditLogsAsync(AuditLogSearchRequestDto request)
+    {
+        Check.NotNull(request, nameof(request));
+        
+        request.ValidateAndSetDefaults();
+
+        try
+        {
+            var auditLogs = await _auditLogRepository.GetListAsync(includeDetails: true);
+
+            var filteredLogs = ApplyAuditLogSearchFilters(auditLogs.AsQueryable(), request);
+
+            var totalCount = filteredLogs.Count();
+            var pagedLogs = filteredLogs
+                .OrderByDescending(x => x.ExecutionTime)
+                .Skip((request.Page - 1) * request.PageSize)
+                .Take(request.PageSize)
+                .Select(x => MapToRecentAuditLogDto(x))
+                .ToList();
+
+            return new AuditLogSearchResponseDto(totalCount, pagedLogs, request.Page, request.PageSize);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error searching audit logs");
+            throw new UserFriendlyException("Failed to search audit logs. Please try again.");
+        }
+    }
+
+    public async Task<PaginatedResponse<RecentAuditLogDto>> GetRecentAuditLogsAsync(RecentAuditLogsRequestDto request)
+    {
+        Check.NotNull(request, nameof(request));
+        
+        request.ValidateAndSetDefaults();
+
+        try
+        {
+            var (skip, take) = _dashboardHelper.ValidatePagination(request.Skip, request.Take);
+
+            var auditLogs = await _auditLogRepository.GetListAsync(includeDetails: true);
+
+            var filteredLogs = auditLogs.AsQueryable();
+
+            if (request.FromDate.HasValue)
+                filteredLogs = filteredLogs.Where(x => x.ExecutionTime >= request.FromDate.Value);
+
+            if (request.ToDate.HasValue)
+                filteredLogs = filteredLogs.Where(x => x.ExecutionTime <= request.ToDate.Value);
+
+            if (!string.IsNullOrWhiteSpace(request.UserId))
+                filteredLogs = filteredLogs.Where(x => x.UserId != null && x.UserId.ToString() == request.UserId);
+
+            if (request.HasException.HasValue)
+                filteredLogs = filteredLogs.Where(x => request.HasException.Value ? !string.IsNullOrEmpty(x.Exceptions) : string.IsNullOrEmpty(x.Exceptions));
+
+            var totalCount = filteredLogs.Count();
+            var result = filteredLogs
+                .OrderByDescending(x => x.ExecutionTime)
+                .Skip(skip)
+                .Take(take)
+                .Select(x => MapToRecentAuditLogDto(x))
+                .ToList();
+
+            return new PaginatedResponse<RecentAuditLogDto>
+            {
+                Items = result,
+                TotalCount = totalCount,
+                Skip = skip,
+                Take = take,
+                HasMore = skip + take < totalCount
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error getting recent audit logs");
+            throw new UserFriendlyException("Failed to get recent audit logs. Please try again.");
+        }
+    }
+
+    public async Task<byte[]> ExportAuditLogsAsync(ExportAuditLogsRequestDto request)
+    {
+        Check.NotNull(request, nameof(request));
+        
+        request.ValidateAndSetDefaults();
+
+        try
+        {
+            var searchRequest = new AuditLogSearchRequestDto
+            {
+                FromDate = request.FromDate,
+                ToDate = request.ToDate,
+                UserId = request.UserId,
+                ServiceName = request.ServiceName,
+                MethodName = request.MethodName,
+                HttpMethod = request.HttpMethod,
+                MinDuration = request.MinDuration,
+                MaxDuration = request.MaxDuration,
+                HasException = request.HasException,
+                ClientIp = request.ClientIp,
+                Page = 1,
+                PageSize = request.MaxRecords
+            };
+
+            var searchResult = await SearchAuditLogsAsync(searchRequest);
+
+            return request.Format.ToLower() switch
+            {
+                LogAnalyticsDashboardConstants.ExportFormats.Json => await ExportAuditLogsAsJsonAsync(searchResult.Items),
+                LogAnalyticsDashboardConstants.ExportFormats.Csv => await ExportAuditLogsAsCsvAsync(searchResult.Items),
+                _ => await ExportAuditLogsAsCsvAsync(searchResult.Items)
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error exporting audit logs");
+            throw new UserFriendlyException("Failed to export audit logs. Please try again.");
+        }
+    }
+
+    #endregion
+
+    #region Analytics and Insights
+
+    public async Task<PaginatedResponse<TopUserActivityDto>> GetTopUserActivitiesAsync(TopUserActivitiesRequestDto request)
+    {
+        Check.NotNull(request, nameof(request));
+        
+        request.ValidateAndSetDefaults();
+
+        try
+        {
+            var (fromDate, toDate) = _dashboardHelper.ValidateDateRange(request.FromDate, request.ToDate);
+            
+            // Convert DateTime to unspecified kind to avoid PostgreSQL issues
+            var fromDateUnspecified = DateTime.SpecifyKind(fromDate, DateTimeKind.Unspecified);
+            var toDateUnspecified = DateTime.SpecifyKind(toDate, DateTimeKind.Unspecified);
+
+            var auditLogs = await _auditLogRepository.GetListAsync(
+                x => x.UserId != null && x.ExecutionTime >= fromDateUnspecified && x.ExecutionTime <= toDateUnspecified);
+
+            var userActivities = auditLogs
+                .GroupBy(x => new { x.UserId, x.UserName })
+                .Select(g => new TopUserActivityDto
+                {
+                    UserId = g.Key.UserId!.ToString()!,
+                    UserName = g.Key.UserName,
+                    ActivityCount = g.Count(),
+                    SuccessfulOperations = g.Count(x => string.IsNullOrEmpty(x.Exceptions)),
+                    FailedOperations = g.Count(x => !string.IsNullOrEmpty(x.Exceptions)),
+                    LastActivity = g.Max(x => x.ExecutionTime),
+                    AvgExecutionTime = g.Any() ? Math.Round(g.Average(x => (double)x.ExecutionDuration), 2) : 0
+                })
+                .OrderByDescending(x => x.ActivityCount)
+                .Take(request.Count)
+                .ToList();
+
+            return new PaginatedResponse<TopUserActivityDto>
+            {
+                Items = userActivities,
+                TotalCount = userActivities.Count,
+                Skip = 0,
+                Take = request.Count,
+                HasMore = false
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error getting top user activities");
+            throw new UserFriendlyException("Failed to get top user activities. Please try again.");
+        }
+    }
+
+    public async Task<PaginatedResponse<AuditLogMethodCountDto>> GetTopAuditMethodsAsync(TopAuditMethodsRequestDto request)
+    {
+        Check.NotNull(request, nameof(request));
+        
+        request.ValidateAndSetDefaults();
+
+        try
+        {
+            var (fromDate, toDate) = _dashboardHelper.ValidateDateRange(request.FromDate, request.ToDate);
+            
+            // Convert DateTime to unspecified kind to avoid PostgreSQL issues
+            var fromDateUnspecified = DateTime.SpecifyKind(fromDate, DateTimeKind.Unspecified);
+            var toDateUnspecified = DateTime.SpecifyKind(toDate, DateTimeKind.Unspecified);
+
+            var auditLogs = await _auditLogRepository.GetListAsync(
+                x => x.ExecutionTime >= fromDateUnspecified && x.ExecutionTime <= toDateUnspecified,
+                includeDetails: true);
+
+            var methodCounts = auditLogs
+                .Where(x => x.Actions != null && x.Actions.Any())
+                .SelectMany(x => x.Actions!.Select(a => new { AuditLog = x, Action = a }))
+                .GroupBy(x => new { x.Action.ServiceName, x.Action.MethodName })
+                .Select(g => new AuditLogMethodCountDto
+                {
+                    ServiceName = g.Key.ServiceName ?? "Unknown",
+                    MethodName = g.Key.MethodName ?? "Unknown",
+                    CallCount = g.Count(),
+                    FailureCount = g.Count(x => !string.IsNullOrEmpty(x.AuditLog.Exceptions)),
+                    AvgDuration = g.Any() ? Math.Round(g.Average(x => (double)x.AuditLog.ExecutionDuration), 2) : 0,
+                    MaxDuration = g.Any() ? g.Max(x => (double)x.AuditLog.ExecutionDuration) : 0,
+                    LastCalled = g.Max(x => x.AuditLog.ExecutionTime)
+                })
+                .OrderByDescending(x => x.CallCount)
+                .Take(request.Count)
+                .ToList();
+
+            return new PaginatedResponse<AuditLogMethodCountDto>
+            {
+                Items = methodCounts,
+                TotalCount = methodCounts.Count,
+                Skip = 0,
+                Take = request.Count,
+                HasMore = false
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error getting top audit methods");
+            throw new UserFriendlyException("Failed to get top audit methods. Please try again.");
+        }
+    }
+
+    #endregion
+
+    #region Private Helper Methods
+
+    private IQueryable<RecentLogEntryDto> ApplyLogSearchFilters(IQueryable<RecentLogEntryDto> logs, LogSearchRequestDto request)
+    {
+        if (request.FromDate.HasValue)
+            logs = logs.Where(l => l.Timestamp >= request.FromDate.Value);
+
+        if (request.ToDate.HasValue)
+            logs = logs.Where(l => l.Timestamp <= request.ToDate.Value);
 
         if (request.LogLevels.Any())
-            allLogs = allLogs.Where(l => request.LogLevels.Contains(l.Level));
+            logs = logs.Where(l => request.LogLevels.Contains(l.Level));
 
         if (request.Applications.Any())
-            allLogs = allLogs.Where(l => request.Applications.Contains(l.Application));
+            logs = logs.Where(l => request.Applications.Contains(l.Application));
 
         if (!string.IsNullOrWhiteSpace(request.SearchText))
         {
             var searchText = request.SearchText.ToLower();
-            allLogs = allLogs.Where(l => l.Message.ToLower().Contains(searchText));
+            logs = logs.Where(l => l.Message.ToLower().Contains(searchText));
         }
 
         if (!string.IsNullOrWhiteSpace(request.UserId))
-            allLogs = allLogs.Where(l => l.UserId == request.UserId);
+            logs = logs.Where(l => l.UserId == request.UserId);
 
-        var totalCount = allLogs.Count();
-        Logger.LogInformation("After filters applied: {Count} logs remain", totalCount);
-        
-        var logs = allLogs
-            .OrderByDescending(l => l.Timestamp)
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
-            .ToList();
+        return logs;
+    }
 
-        Logger.LogInformation("Final result: {Count} logs after pagination", logs.Count);
+    private IQueryable<RecentLogEntryDto> ApplyRecentLogsFilters(IQueryable<RecentLogEntryDto> logs, RecentLogsRequestDto request)
+    {
+        if (request.FromDate.HasValue)
+            logs = logs.Where(l => l.Timestamp >= request.FromDate.Value);
 
-        return new LogSearchResponseDto
+        if (request.ToDate.HasValue)
+            logs = logs.Where(l => l.Timestamp <= request.ToDate.Value);
+
+        if (request.LogLevels.Any())
+            logs = logs.Where(l => request.LogLevels.Contains(l.Level));
+
+        if (request.Applications.Any())
+            logs = logs.Where(l => request.Applications.Contains(l.Application));
+
+        return logs;
+    }
+
+    private IQueryable<AuditLog> ApplyAuditLogSearchFilters(IQueryable<AuditLog> logs, AuditLogSearchRequestDto request)
+    {
+        if (request.FromDate.HasValue)
         {
-            Logs = logs,
-            TotalCount = totalCount,
-            Page = request.Page,
-            PageSize = request.PageSize,
-            TotalPages = (int)Math.Ceiling((double)totalCount / request.PageSize)
+            var fromDateUnspecified = DateTime.SpecifyKind(request.FromDate.Value, DateTimeKind.Unspecified);
+            logs = logs.Where(x => x.ExecutionTime >= fromDateUnspecified);
+        }
+
+        if (request.ToDate.HasValue)
+        {
+            var toDateUnspecified = DateTime.SpecifyKind(request.ToDate.Value, DateTimeKind.Unspecified);
+            logs = logs.Where(x => x.ExecutionTime <= toDateUnspecified);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.UserId))
+            logs = logs.Where(x => x.UserId != null && x.UserId.ToString() == request.UserId);
+
+        if (!string.IsNullOrWhiteSpace(request.ServiceName))
+            logs = logs.Where(x => x.Actions != null && x.Actions.Any(a => a.ServiceName != null && a.ServiceName.Contains(request.ServiceName)));
+
+        if (!string.IsNullOrWhiteSpace(request.MethodName))
+            logs = logs.Where(x => x.Actions != null && x.Actions.Any(a => a.MethodName != null && a.MethodName.Contains(request.MethodName)));
+
+        if (!string.IsNullOrWhiteSpace(request.HttpMethod))
+            logs = logs.Where(x => x.HttpMethod == request.HttpMethod);
+
+        if (request.MinDuration.HasValue)
+            logs = logs.Where(x => x.ExecutionDuration >= request.MinDuration.Value);
+
+        if (request.MaxDuration.HasValue)
+            logs = logs.Where(x => x.ExecutionDuration <= request.MaxDuration.Value);
+
+        if (request.HasException.HasValue)
+            logs = logs.Where(x => request.HasException.Value ? !string.IsNullOrEmpty(x.Exceptions) : string.IsNullOrEmpty(x.Exceptions));
+
+        if (!string.IsNullOrWhiteSpace(request.ClientIp))
+            logs = logs.Where(x => x.ClientIpAddress != null && x.ClientIpAddress.Contains(request.ClientIp));
+
+        return logs;
+    }
+
+    private RecentAuditLogDto MapToRecentAuditLogDto(AuditLog auditLog)
+    {
+        return new RecentAuditLogDto
+        {
+            ExecutionTime = auditLog.ExecutionTime,
+            UserId = auditLog.UserId?.ToString(),
+            UserName = auditLog.UserName,
+            ServiceName = auditLog.Actions?.FirstOrDefault()?.ServiceName ?? "Unknown",
+            MethodName = auditLog.Actions?.FirstOrDefault()?.MethodName ?? "Unknown",
+            ExecutionDuration = auditLog.ExecutionDuration,
+            ClientIpAddress = auditLog.ClientIpAddress,
+            BrowserInfo = auditLog.BrowserInfo,
+            HttpMethod = auditLog.HttpMethod,
+            Url = auditLog.Url,
+            HttpStatusCode = auditLog.HttpStatusCode,
+            HasException = !string.IsNullOrEmpty(auditLog.Exceptions),
+            Exception = auditLog.Exceptions
         };
     }
 
-    public async Task<List<string>> GetApplicationsAsync()
+    private async Task<LogStatisticsDto> GetLogStatisticsAsync(DateTime fromDate, DateTime toDate)
     {
-        // Get real applications from AuditLog data
-        var auditLogs = await _auditLogRepository.GetListAsync(includeDetails: true);
+        var auditStats = await GetAuditLogStatisticsAsync(new AuditLogSearchRequestDto { FromDate = fromDate, ToDate = toDate });
+
+        // Convert UTC DateTime to unspecified kind to avoid PostgreSQL issues
+        var fromDateUnspecified = DateTime.SpecifyKind(fromDate, DateTimeKind.Unspecified);
+        var toDateUnspecified = DateTime.SpecifyKind(toDate, DateTimeKind.Unspecified);
         
-        // Extract unique application names from audit log service names
-        var applications = auditLogs
-            .Where(auditLog => auditLog.Actions != null && auditLog.Actions.Any())
-            .SelectMany(auditLog => auditLog.Actions!)
-            .Select(action => GetApplicationNameFromService(action.ServiceName))
-            .Distinct()
-            .Where(app => !string.IsNullOrWhiteSpace(app))
-            .OrderBy(app => app)
-            .ToList();
-            
-        // If no applications found, return default
-        if (!applications.Any())
+        var auditLogsForStats = await _auditLogRepository.GetListAsync(
+            x => x.ExecutionTime >= fromDateUnspecified && x.ExecutionTime <= toDateUnspecified);
+
+        var errorCount = auditLogsForStats.Count(x => x.HttpStatusCode.HasValue &&
+            x.HttpStatusCode >= 400 && x.HttpStatusCode < 600);
+
+        return new LogStatisticsDto
         {
-            applications.Add("ERPPlatform.Application");
-        }
-        
-        return applications;
+            TotalLogs = auditStats.TotalAuditLogs,
+            TodayLogs = auditStats.TodayAuditLogs,
+            ErrorCount = errorCount,
+            WarningCount = Math.Max(0, auditStats.TotalAuditLogs - auditStats.FailedOperations - auditStats.SuccessfulOperations),
+            InfoCount = auditStats.SuccessfulOperations,
+            AvgResponseTime = auditStats.AvgExecutionDuration,
+            SlowOperations = auditLogsForStats.Count(x => _dashboardHelper.IsSlowOperation(x.ExecutionDuration)),
+            SecurityEvents = auditStats.UniqueUsers,
+            TotalAuditLogs = auditStats.TotalAuditLogs,
+            TodayAuditLogs = auditStats.TodayAuditLogs,
+            FailedOperations = auditStats.FailedOperations
+        };
     }
 
-    public async Task<List<string>> GetLogLevelsAsync()
+    private async Task<List<LogLevelCountDto>> GetLogLevelCountsAsync(DateTime fromDate, DateTime toDate)
     {
-        // Get unique log levels from AuditLog data
-        var auditLogs = await _auditLogRepository.GetListAsync(includeDetails: true);
-        
-        // Extract unique log levels - derive from exception presence and other criteria
-        var logLevels = auditLogs
-            .Where(auditLog => auditLog.Actions != null && auditLog.Actions.Any())
-            .SelectMany(auditLog => auditLog.Actions!.Select(action => new
-            {
-                HasException = !string.IsNullOrEmpty(auditLog.Exceptions),
-                StatusCode = auditLog.HttpStatusCode
-            }))
-            .Select(log => log.HasException ? "Error" : "Information")
-            .Distinct()
-            .Where(level => !string.IsNullOrWhiteSpace(level))
-            .OrderBy(level => level)
-            .ToList();
-            
-        // Ensure we have standard log levels
-        var standardLevels = new[] { "Information", "Warning", "Error" };
-        foreach (var level in standardLevels)
+        var auditStats = await GetAuditLogStatisticsAsync(new AuditLogSearchRequestDto { FromDate = fromDate, ToDate = toDate });
+        var total = auditStats.TotalAuditLogs;
+
+        if (total == 0)
         {
-            if (!logLevels.Contains(level))
+            return new List<LogLevelCountDto>
             {
-                logLevels.Add(level);
+                new() { Level = LogAnalyticsDashboardConstants.LogLevels.Information, Count = 0, Percentage = 0 },
+                new() { Level = LogAnalyticsDashboardConstants.LogLevels.Warning, Count = 0, Percentage = 0 },
+                new() { Level = LogAnalyticsDashboardConstants.LogLevels.Error, Count = 0, Percentage = 0 }
+            };
+        }
+
+        var errorCount = auditStats.FailedOperations;
+        var infoCount = auditStats.SuccessfulOperations;
+        var warningCount = Math.Max(0, total - errorCount - infoCount);
+
+        return new List<LogLevelCountDto>
+        {
+            new() { 
+                Level = LogAnalyticsDashboardConstants.LogLevels.Information, 
+                Count = infoCount, 
+                Percentage = _dashboardHelper.CalculatePercentage(infoCount, total) 
+            },
+            new() { 
+                Level = LogAnalyticsDashboardConstants.LogLevels.Warning, 
+                Count = warningCount, 
+                Percentage = _dashboardHelper.CalculatePercentage(warningCount, total) 
+            },
+            new() { 
+                Level = LogAnalyticsDashboardConstants.LogLevels.Error, 
+                Count = errorCount, 
+                Percentage = _dashboardHelper.CalculatePercentage(errorCount, total) 
             }
-        }
-        
-        return logLevels.OrderBy(x => x).ToList();
+        };
     }
 
-    public async Task<List<TopErrorDto>> GetTopErrorsAsync(int count = 10)
+    private async Task<List<ApplicationLogCountDto>> GetApplicationCountsAsync(DateTime fromDate, DateTime toDate)
     {
-        // Get audit logs with exceptions and group by error type
+        var auditStats = await GetAuditLogStatisticsAsync(new AuditLogSearchRequestDto { FromDate = fromDate, ToDate = toDate });
+
+        if (auditStats.TotalAuditLogs == 0)
+        {
+            return new List<ApplicationLogCountDto>();
+        }
+
+        return new List<ApplicationLogCountDto>
+        {
+            new() { 
+                Application = LogAnalyticsDashboardConstants.Applications.Application, 
+                Count = auditStats.TotalAuditLogs, 
+                ErrorCount = auditStats.FailedOperations 
+            }
+        };
+    }
+
+    private async Task<List<HourlyLogCountDto>> GetHourlyTrendsAsync(DateTime fromDate, DateTime toDate)
+    {
+        var last24Hours = DateTime.UtcNow.AddHours(-24);
+        // Convert DateTime to unspecified kind to avoid PostgreSQL issues
+        var last24HoursUnspecified = DateTime.SpecifyKind(last24Hours, DateTimeKind.Unspecified);
+        var auditLogs = await _auditLogRepository.GetListAsync(x => x.ExecutionTime >= last24HoursUnspecified);
+
+        if (!auditLogs.Any())
+        {
+            return new List<HourlyLogCountDto>();
+        }
+
+        return _dashboardHelper.GroupByHour(
+            auditLogs,
+            x => x.ExecutionTime,
+            x => !string.IsNullOrEmpty(x.Exceptions),
+            24);
+    }
+
+    private async Task<List<RecentLogEntryDto>> GetRecentLogsForDashboardAsync(int count)
+    {
+        var request = new RecentLogsRequestDto { Take = count };
+        var result = await GetRecentLogsAsync(request);
+        return result.Items;
+    }
+
+    private async Task<List<TopErrorDto>> GetTopErrorsAsync(int count)
+    {
         var auditLogs = await _auditLogRepository.GetListAsync(
             x => !string.IsNullOrEmpty(x.Exceptions),
             includeDetails: true);
@@ -202,14 +849,14 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         }
 
         var errorGroups = auditLogs
-            .GroupBy(x => ExtractFirstLineOfException(x.Exceptions))
+            .GroupBy(x => _dashboardHelper.ExtractExceptionMessage(x.Exceptions))
             .Select(g => new TopErrorDto
             {
                 ErrorMessage = g.Key ?? "Unknown Error",
-                ExceptionType = ExtractExceptionType(g.First().Exceptions),
+                ExceptionType = _dashboardHelper.ExtractExceptionType(g.First().Exceptions),
                 Count = g.Count(),
                 LastOccurrence = g.Max(x => x.ExecutionTime),
-                AffectedApplications = new List<string> { "ERPPlatform" }
+                AffectedApplications = new List<string> { LogAnalyticsDashboardConstants.Applications.Application }
             })
             .OrderByDescending(x => x.Count)
             .Take(count)
@@ -218,662 +865,97 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         return errorGroups;
     }
 
-    public async Task<List<PerformanceMetricDto>> GetPerformanceMetricsAsync(int count = 10)
+    private async Task<List<PerformanceMetricDto>> GetPerformanceMetricsAsync(int count)
     {
-        // Use audit log data to show performance metrics
-        var auditMethodCounts = await GetTopAuditMethodsAsync(count);
-        
-        var performanceMetrics = auditMethodCounts.Select(method => new PerformanceMetricDto
+        var methodCountsRequest = new TopAuditMethodsRequestDto { Count = count };
+        var methodCounts = await GetTopAuditMethodsAsync(methodCountsRequest);
+
+        return methodCounts.Items.Select(method => new PerformanceMetricDto
         {
-            Operation = $"{method.ServiceName}.{method.MethodName}",
+            Operation = method.FullMethodName,
             AvgDuration = method.AvgDuration,
             MaxDuration = method.MaxDuration,
             ExecutionCount = method.CallCount,
-            SlowExecutions = method.FailureCount, // Using failure count as slow executions for now
+            SlowExecutions = method.FailureCount,
             LastExecution = method.LastCalled
         }).ToList();
-
-        return performanceMetrics;
     }
 
-    public async Task<List<HourlyLogCountDto>> GetHourlyTrendsAsync(DateTime fromDate, DateTime toDate)
+    private async Task<List<RecentAuditLogDto>> GetRecentAuditLogsForDashboardAsync(int count)
     {
-        // For dashboard, show trends from all audit logs (last 24 hours of activity)
-        var last24Hours = DateTime.Now.AddHours(-24);
-        var auditLogs = await _auditLogRepository.GetListAsync(
-            x => x.ExecutionTime >= last24Hours);
-
-        Logger.LogInformation("Hourly trends: Using last 24 hours from {StartTime}, found {Count} audit logs", 
-            last24Hours, auditLogs.Count);
-
-        if (!auditLogs.Any())
-        {
-            return new List<HourlyLogCountDto>();
-        }
-
-        // Group by hour and count
-        var hourlyData = auditLogs
-            .GroupBy(x => new DateTime(x.ExecutionTime.Year, x.ExecutionTime.Month, x.ExecutionTime.Day, x.ExecutionTime.Hour, 0, 0))
-            .Select(g => new HourlyLogCountDto
-            {
-                Hour = g.Key,
-                TotalCount = g.Count(),
-                ErrorCount = g.Count(x => !string.IsNullOrEmpty(x.Exceptions)),
-                WarningCount = 0, // No warning concept in audit logs
-                InfoCount = g.Count(x => string.IsNullOrEmpty(x.Exceptions))
-            })
-            .OrderBy(x => x.Hour)
-            .Take(24)
-            .ToList();
-
-        return hourlyData;
+        var request = new RecentAuditLogsRequestDto { Take = count };
+        var result = await GetRecentAuditLogsAsync(request);
+        return result.Items;
     }
 
-    public async Task<Dictionary<string, object>> GetSystemHealthAsync()
+    private async Task<List<TopUserActivityDto>> GetTopUserActivitiesForDashboardAsync(int count)
     {
-        // Get system health from real AuditLog data
-        var auditLogs = await _auditLogRepository.GetListAsync(includeDetails: true);
-        var recentLogs = auditLogs.Where(x => x.ExecutionTime >= DateTime.UtcNow.AddHours(-1)).ToList();
-        
-        var recentErrors = recentLogs.Count(x => !string.IsNullOrEmpty(x.Exceptions));
-        var recentCritical = recentLogs.Count(x => !string.IsNullOrEmpty(x.Exceptions) && x.HttpStatusCode >= 500);
-        var avgResponseTime = recentLogs.Any() ? recentLogs.Average(x => (double)x.ExecutionDuration) : 0;
-        
-        return new Dictionary<string, object>
-        {
-            ["Status"] = recentCritical > 0 ? "Critical" : recentErrors > 10 ? "Warning" : "Healthy",
-            ["RecentErrors"] = recentErrors,
-            ["RecentCritical"] = recentCritical,
-            ["AvgResponseTime"] = Math.Round(avgResponseTime, 2),
-            ["LastCheck"] = DateTime.UtcNow
-        };
+        var request = new TopUserActivitiesRequestDto { Count = count };
+        var result = await GetTopUserActivitiesAsync(request);
+        return result.Items;
     }
 
-    public async Task<byte[]> ExportLogsAsync(LogSearchRequestDto request, string format = "csv")
+    private async Task<List<AuditLogMethodCountDto>> GetTopAuditMethodsForDashboardAsync(int count)
     {
-        // Debug logging
-        Logger.LogInformation("ExportLogsAsync called with FromDate: {FromDate}, ToDate: {ToDate}, Format: {Format}", 
-            request.FromDate, request.ToDate, format);
+        var request = new TopAuditMethodsRequestDto { Count = count };
+        var result = await GetTopAuditMethodsAsync(request);
+        return result.Items;
+    }
 
-        var logs = await SearchLogsAsync(new LogSearchRequestDto
+    private async Task<byte[]> ExportLogsAsJsonAsync(IReadOnlyList<RecentLogEntryDto> logs)
+    {
+        return await Task.FromResult(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(logs, new JsonSerializerOptions
         {
-            FromDate = request.FromDate,
-            ToDate = request.ToDate,
-            LogLevels = request.LogLevels,
-            Applications = request.Applications,
-            SearchText = request.SearchText,
-            UserId = request.UserId,
-            Category = request.Category,
-            Page = 1,
-            PageSize = 10000 // Export up to 10k records
-        });
+            WriteIndented = true
+        })));
+    }
 
-        Logger.LogInformation("SearchLogsAsync returned {Count} logs", logs.Logs.Count);
-
-        if (format.ToLower() == "json")
-        {
-            return Encoding.UTF8.GetBytes(JsonSerializer.Serialize(logs.Logs, new JsonSerializerOptions 
-            { 
-                WriteIndented = true 
-            }));
-        }
-
-        // Default to CSV
+    private async Task<byte[]> ExportLogsAsCsvAsync(IReadOnlyList<RecentLogEntryDto> logs)
+    {
         var csv = new StringBuilder();
         csv.AppendLine("Timestamp,Level,Application,Message,UserId,Exception");
-        
-        foreach (var log in logs.Logs)
+
+        foreach (var log in logs)
         {
-            csv.AppendLine($"\"{log.Timestamp:yyyy-MM-dd HH:mm:ss}\",\"{log.Level}\",\"{log.Application}\",\"{EscapeCsv(log.Message)}\",\"{log.UserId}\",\"{EscapeCsv(log.Exception)}\"");
+            csv.AppendLine($"\"{_dashboardHelper.FormatDateForExport(log.Timestamp)}\"," +
+                          $"\"{log.Level}\"," +
+                          $"\"{log.Application}\"," +
+                          $"\"{_dashboardHelper.EscapeCsvValue(log.Message)}\"," +
+                          $"\"{log.UserId}\"," +
+                          $"\"{_dashboardHelper.EscapeCsvValue(log.Exception)}\"");
         }
 
-        Logger.LogInformation("Generated CSV with {Length} characters", csv.ToString().Length);
-        return Encoding.UTF8.GetBytes(csv.ToString());
+        return await Task.FromResult(Encoding.UTF8.GetBytes(csv.ToString()));
     }
 
-    #region ABP Audit Log Methods
-
-    public async Task<AuditLogStatisticsDto> GetAuditLogStatisticsAsync(DateTime fromDate, DateTime toDate)
+    private async Task<byte[]> ExportAuditLogsAsJsonAsync(IReadOnlyList<RecentAuditLogDto> logs)
     {
-        // Get ALL audit logs for total count (dashboard should show overall statistics)
-        var allAuditLogs = await _auditLogRepository.GetListAsync(includeDetails: true);
-        var totalAuditLogs = allAuditLogs.Count;
-        
-        Logger.LogInformation("Total audit logs in database: {TotalCount}", totalAuditLogs);
-        
-        // Get audit logs within date range for other calculations  
-        var auditLogsWithActions = await _auditLogRepository.GetListAsync(
-            x => x.ExecutionTime >= fromDate && x.ExecutionTime <= toDate,
-            includeDetails: true);
-
-        Logger.LogInformation("Audit logs in date range {FromDate} to {ToDate}: {Count}", 
-            fromDate, toDate, auditLogsWithActions.Count);
-        
-        // Get today's audit logs count (separate query as it's a different date range)
-        var todayAuditLogs = await _auditLogRepository.CountAsync(x => 
-            x.ExecutionTime.Date == DateTime.Today);
-
-        var failedOperations = auditLogsWithActions.Count(x => !string.IsNullOrEmpty(x.Exceptions));
-        var successfulOperations = totalAuditLogs - failedOperations;
-
-        var avgExecutionDuration = auditLogsWithActions.Any() 
-            ? auditLogsWithActions.Average(x => (double)x.ExecutionDuration) 
-            : 0;
-
-        var uniqueUsers = auditLogsWithActions
-            .Where(x => x.UserId != null)
-            .Select(x => x.UserId)
-            .Distinct()
-            .Count();
-
-        var uniqueServices = auditLogsWithActions
-            .SelectMany(x => x.Actions ?? new List<AuditLogAction>())
-            .Select(x => x.ServiceName)
-            .Where(x => !string.IsNullOrEmpty(x))
-            .Distinct()
-            .Count();
-
-        return new AuditLogStatisticsDto
+        return await Task.FromResult(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(logs, new JsonSerializerOptions
         {
-            TotalAuditLogs = totalAuditLogs,
-            TodayAuditLogs = todayAuditLogs,
-            SuccessfulOperations = successfulOperations,
-            FailedOperations = failedOperations,
-            AvgExecutionDuration = avgExecutionDuration,
-            UniqueUsers = uniqueUsers,
-            UniqueServices = uniqueServices
-        };
+            WriteIndented = true
+        })));
     }
 
-    public async Task<AuditLogSearchResponseDto> SearchAuditLogsAsync(AuditLogSearchRequestDto request)
+    private async Task<byte[]> ExportAuditLogsAsCsvAsync(IReadOnlyList<RecentAuditLogDto> logs)
     {
-        // Build predicate for filtering
-        var auditLogs = await _auditLogRepository.GetListAsync(includeDetails: true);
-
-        // Apply filters in memory (for simplicity, in production consider server-side filtering)
-        var filteredLogs = auditLogs.AsQueryable();
-
-        if (request.FromDate.HasValue)
-            filteredLogs = filteredLogs.Where(x => x.ExecutionTime >= request.FromDate.Value);
-
-        if (request.ToDate.HasValue)
-            filteredLogs = filteredLogs.Where(x => x.ExecutionTime <= request.ToDate.Value);
-
-        if (!string.IsNullOrWhiteSpace(request.UserId))
-            filteredLogs = filteredLogs.Where(x => x.UserId != null && x.UserId.ToString() == request.UserId);
-
-        if (!string.IsNullOrWhiteSpace(request.ServiceName))
-            filteredLogs = filteredLogs.Where(x => x.Actions != null && x.Actions.Any(a => a.ServiceName != null && a.ServiceName.Contains(request.ServiceName)));
-
-        if (!string.IsNullOrWhiteSpace(request.MethodName))
-            filteredLogs = filteredLogs.Where(x => x.Actions != null && x.Actions.Any(a => a.MethodName != null && a.MethodName.Contains(request.MethodName)));
-
-        if (!string.IsNullOrWhiteSpace(request.HttpMethod))
-            filteredLogs = filteredLogs.Where(x => x.HttpMethod == request.HttpMethod);
-
-        if (request.MinDuration.HasValue)
-            filteredLogs = filteredLogs.Where(x => x.ExecutionDuration >= request.MinDuration.Value);
-
-        if (request.MaxDuration.HasValue)
-            filteredLogs = filteredLogs.Where(x => x.ExecutionDuration <= request.MaxDuration.Value);
-
-        if (request.HasException.HasValue)
-            filteredLogs = filteredLogs.Where(x => request.HasException.Value ? !string.IsNullOrEmpty(x.Exceptions) : string.IsNullOrEmpty(x.Exceptions));
-
-        if (!string.IsNullOrWhiteSpace(request.ClientIp))
-            filteredLogs = filteredLogs.Where(x => x.ClientIpAddress != null && x.ClientIpAddress.Contains(request.ClientIp));
-
-        var totalCount = filteredLogs.Count();
-        
-        var result = filteredLogs
-            .OrderByDescending(x => x.ExecutionTime)
-            .Skip((request.Page - 1) * request.PageSize)
-            .Take(request.PageSize)
-            .Select(x => new RecentAuditLogDto
-            {
-                ExecutionTime = x.ExecutionTime,
-                UserId = x.UserId != null ? x.UserId.ToString() : null,
-                UserName = x.UserName,
-                ServiceName = x.Actions != null && x.Actions.Any() ? x.Actions.First().ServiceName ?? "Unknown" : "Unknown",
-                MethodName = x.Actions != null && x.Actions.Any() ? x.Actions.First().MethodName ?? "Unknown" : "Unknown",
-                ExecutionDuration = x.ExecutionDuration,
-                ClientIpAddress = x.ClientIpAddress,
-                BrowserInfo = x.BrowserInfo,
-                HttpMethod = x.HttpMethod,
-                Url = x.Url,
-                HttpStatusCode = x.HttpStatusCode,
-                HasException = !string.IsNullOrEmpty(x.Exceptions),
-                Exception = x.Exceptions
-            })
-            .ToList();
-
-        return new AuditLogSearchResponseDto
-        {
-            AuditLogs = result,
-            TotalCount = totalCount,
-            Page = request.Page,
-            PageSize = request.PageSize,
-            TotalPages = (int)Math.Ceiling((double)totalCount / request.PageSize)
-        };
-    }
-
-    public async Task<List<RecentAuditLogDto>> GetRecentAuditLogsAsync(int count = 20)
-    {
-        var auditLogs = await _auditLogRepository.GetListAsync(includeDetails: true);
-        
-        var result = auditLogs
-            .OrderByDescending(x => x.ExecutionTime)
-            .Take(count)
-            .Select(x => new RecentAuditLogDto
-            {
-                ExecutionTime = x.ExecutionTime,
-                UserId = x.UserId != null ? x.UserId.ToString() : null,
-                UserName = x.UserName,
-                ServiceName = x.Actions != null && x.Actions.Any() ? x.Actions.First().ServiceName ?? "Unknown" : "Unknown",
-                MethodName = x.Actions != null && x.Actions.Any() ? x.Actions.First().MethodName ?? "Unknown" : "Unknown",
-                ExecutionDuration = x.ExecutionDuration,
-                ClientIpAddress = x.ClientIpAddress,
-                BrowserInfo = x.BrowserInfo,
-                HttpMethod = x.HttpMethod,
-                Url = x.Url,
-                HttpStatusCode = x.HttpStatusCode,
-                HasException = !string.IsNullOrEmpty(x.Exceptions),
-                Exception = x.Exceptions
-            })
-            .ToList();
-
-        return result;
-    }
-
-    public async Task<List<TopUserActivityDto>> GetTopUserActivitiesAsync(int count = 10)
-    {
-        var auditLogs = await _auditLogRepository.GetListAsync(x => x.UserId != null);
-        
-        var userActivities = auditLogs
-            .GroupBy(x => new { x.UserId, x.UserName })
-            .Select(g => new TopUserActivityDto
-            {
-                UserId = g.Key.UserId.ToString(),
-                UserName = g.Key.UserName,
-                ActivityCount = g.Count(),
-                SuccessfulOperations = g.Count(x => string.IsNullOrEmpty(x.Exceptions)),
-                FailedOperations = g.Count(x => !string.IsNullOrEmpty(x.Exceptions)),
-                LastActivity = g.Max(x => x.ExecutionTime),
-                AvgExecutionTime = g.Any() ? g.Average(x => (double)x.ExecutionDuration) : 0
-            })
-            .OrderByDescending(x => x.ActivityCount)
-            .Take(count)
-            .ToList();
-
-        return userActivities;
-    }
-
-    public async Task<List<AuditLogMethodCountDto>> GetTopAuditMethodsAsync(int count = 10)
-    {
-        var auditLogs = await _auditLogRepository.GetListAsync(includeDetails: true);
-        
-        var methodCounts = auditLogs
-            .Where(x => x.Actions != null && x.Actions.Any())
-            .SelectMany(x => x.Actions.Select(a => new { AuditLog = x, Action = a }))
-            .GroupBy(x => new { x.Action.ServiceName, x.Action.MethodName })
-            .Select(g => new AuditLogMethodCountDto
-            {
-                ServiceName = g.Key.ServiceName ?? "Unknown",
-                MethodName = g.Key.MethodName ?? "Unknown", 
-                CallCount = g.Count(),
-                FailureCount = g.Count(x => !string.IsNullOrEmpty(x.AuditLog.Exceptions)),
-                AvgDuration = g.Any() ? g.Average(x => (double)x.AuditLog.ExecutionDuration) : 0,
-                MaxDuration = g.Any() ? g.Max(x => (double)x.AuditLog.ExecutionDuration) : 0,
-                LastCalled = g.Max(x => x.AuditLog.ExecutionTime)
-            })
-            .OrderByDescending(x => x.CallCount)
-            .Take(count)
-            .ToList();
-
-        return methodCounts;
-    }
-
-    public async Task<byte[]> ExportAuditLogsAsync(AuditLogSearchRequestDto request, string format = "csv")
-    {
-        var auditLogs = await SearchAuditLogsAsync(new AuditLogSearchRequestDto
-        {
-            FromDate = request.FromDate,
-            ToDate = request.ToDate,
-            UserId = request.UserId,
-            ServiceName = request.ServiceName,
-            MethodName = request.MethodName,
-            HttpMethod = request.HttpMethod,
-            MinDuration = request.MinDuration,
-            MaxDuration = request.MaxDuration,
-            HasException = request.HasException,
-            ClientIp = request.ClientIp,
-            Page = 1,
-            PageSize = 10000 // Export up to 10k records
-        });
-
-        if (format.ToLower() == "json")
-        {
-            return Encoding.UTF8.GetBytes(JsonSerializer.Serialize(auditLogs.AuditLogs, new JsonSerializerOptions 
-            { 
-                WriteIndented = true 
-            }));
-        }
-
-        // Default to CSV
         var csv = new StringBuilder();
         csv.AppendLine("ExecutionTime,UserId,UserName,ServiceName,MethodName,ExecutionDuration,ClientIpAddress,HttpMethod,HttpStatusCode,HasException");
-        
-        foreach (var log in auditLogs.AuditLogs)
+
+        foreach (var log in logs)
         {
-            csv.AppendLine($"\"{log.ExecutionTime:yyyy-MM-dd HH:mm:ss}\",\"{log.UserId}\",\"{EscapeCsv(log.UserName)}\",\"{log.ServiceName}\",\"{log.MethodName}\",\"{log.ExecutionDuration}\",\"{log.ClientIpAddress}\",\"{log.HttpMethod}\",\"{log.HttpStatusCode}\",\"{log.HasException}\"");
+            csv.AppendLine($"\"{_dashboardHelper.FormatDateForExport(log.ExecutionTime)}\"," +
+                          $"\"{log.UserId}\"," +
+                          $"\"{_dashboardHelper.EscapeCsvValue(log.UserName)}\"," +
+                          $"\"{log.ServiceName}\"," +
+                          $"\"{log.MethodName}\"," +
+                          $"\"{log.ExecutionDuration}\"," +
+                          $"\"{log.ClientIpAddress}\"," +
+                          $"\"{log.HttpMethod}\"," +
+                          $"\"{log.HttpStatusCode}\"," +
+                          $"\"{log.HasException}\"");
         }
 
-        return Encoding.UTF8.GetBytes(csv.ToString());
-    }
-
-    public async Task<PaginatedResponse<RecentAuditLogDto>> GetRecentAuditLogsPaginatedAsync(int skip = 0, int take = 20)
-    {
-        var auditLogs = await _auditLogRepository.GetListAsync(includeDetails: true);
-        var totalCount = auditLogs.Count;
-        
-        var result = auditLogs
-            .OrderByDescending(x => x.ExecutionTime)
-            .Skip(skip)
-            .Take(take)
-            .Select(x => new RecentAuditLogDto
-            {
-                ExecutionTime = x.ExecutionTime,
-                UserId = x.UserId != null ? x.UserId.ToString() : null,
-                UserName = x.UserName,
-                ServiceName = x.Actions != null && x.Actions.Any() ? x.Actions.First().ServiceName ?? "Unknown" : "Unknown",
-                MethodName = x.Actions != null && x.Actions.Any() ? x.Actions.First().MethodName ?? "Unknown" : "Unknown",
-                ExecutionDuration = x.ExecutionDuration,
-                ClientIpAddress = x.ClientIpAddress,
-                BrowserInfo = x.BrowserInfo,
-                HttpMethod = x.HttpMethod,
-                Url = x.Url,
-                HttpStatusCode = x.HttpStatusCode,
-                HasException = !string.IsNullOrEmpty(x.Exceptions),
-                Exception = x.Exceptions
-            })
-            .ToList();
-
-        return new PaginatedResponse<RecentAuditLogDto>
-        {
-            Items = result,
-            TotalCount = totalCount,
-            Skip = skip,
-            Take = take,
-            HasMore = skip + take < totalCount
-        };
-    }
-
-    public async Task<PaginatedResponse<RecentLogEntryDto>> GetRecentLogsPaginatedAsync(int skip = 0, int take = 20)
-    {
-        // Get all audit logs and convert to log entries
-        var auditLogs = await _auditLogRepository.GetListAsync(includeDetails: true);
-        
-        // Convert to log entries first, then apply pagination
-        var allLogEntries = auditLogs
-            .SelectMany(auditLog => auditLog.Actions?.Select(action => new RecentLogEntryDto
-            {
-                Timestamp = auditLog.ExecutionTime,
-                Level = !string.IsNullOrEmpty(auditLog.Exceptions) ? "Error" : "Information",
-                Application = "ERPPlatform",
-                Message = $"{action.ServiceName}.{action.MethodName} - {auditLog.HttpMethod} {auditLog.HttpStatusCode}",
-                UserId = auditLog.UserId?.ToString(),
-                Exception = !string.IsNullOrEmpty(auditLog.Exceptions) ? auditLog.Exceptions : null,
-                HasException = !string.IsNullOrEmpty(auditLog.Exceptions),
-                HttpStatusCode = auditLog.HttpStatusCode,
-                ExecutionDuration = auditLog.ExecutionDuration,
-                ServiceName = action.ServiceName,
-                MethodName = action.MethodName,
-                Properties = new Dictionary<string, object>
-                {
-                    ["RequestId"] = Guid.NewGuid().ToString(),
-                    ["Duration"] = auditLog.ExecutionDuration,
-                    ["ServiceName"] = action.ServiceName ?? "Unknown",
-                    ["MethodName"] = action.MethodName ?? "Unknown",
-                    ["HttpStatusCode"] = auditLog.HttpStatusCode ?? 0
-                }
-            }) ?? new List<RecentLogEntryDto>())
-            .OrderByDescending(x => x.Timestamp)
-            .ToList();
-        
-        var totalCount = allLogEntries.Count;
-        var paginatedItems = allLogEntries
-            .Skip(skip)
-            .Take(take)
-            .ToList();
-
-        return new PaginatedResponse<RecentLogEntryDto>
-        {
-            Items = paginatedItems,
-            TotalCount = totalCount,
-            Skip = skip,
-            Take = take,
-            HasMore = skip + take < totalCount
-        };
-    }
-
-    #endregion
-
-    #region Private Methods
-
-    private async Task<LogStatisticsDto> GetStatisticsAsync(DateTime fromDate, DateTime toDate)
-    {
-        // Use audit log data for regular log statistics since no separate application log system is set up
-        var auditStats = await GetAuditLogStatisticsAsync(fromDate, toDate);
-        
-        // Calculate error count based on HTTP status codes (4xx, 5xx)
-        var auditLogsForStats = await _auditLogRepository.GetListAsync(
-            x => x.ExecutionTime >= fromDate && x.ExecutionTime <= toDate,
-            includeDetails: true);
-            
-        var errorCount = auditLogsForStats.Count(x => x.HttpStatusCode.HasValue && 
-            (x.HttpStatusCode >= 400 && x.HttpStatusCode < 600));
-            
-        return new LogStatisticsDto
-        {
-            TotalLogs = auditStats.TotalAuditLogs,
-            TodayLogs = auditStats.TodayAuditLogs,
-            ErrorCount = errorCount, // HTTP 4xx/5xx status codes
-            WarningCount = Math.Max(0, auditStats.TotalAuditLogs - auditStats.FailedOperations - auditStats.SuccessfulOperations),
-            InfoCount = auditStats.SuccessfulOperations,
-            AvgResponseTime = auditStats.AvgExecutionDuration,
-            SlowOperations = auditLogsForStats.Count(x => x.ExecutionDuration > 5000), // Operations > 5 seconds
-            SecurityEvents = auditStats.UniqueUsers,
-            TotalAuditLogs = auditStats.TotalAuditLogs,
-            TodayAuditLogs = auditStats.TodayAuditLogs,
-            FailedOperations = auditStats.FailedOperations // Operations with exceptions
-        };
-    }
-
-    private async Task<List<LogLevelCountDto>> GetLogLevelCountsAsync(DateTime fromDate, DateTime toDate)
-    {
-        // Use audit log data to generate log level counts
-        var auditStats = await GetAuditLogStatisticsAsync(fromDate, toDate);
-        var total = auditStats.TotalAuditLogs;
-        
-        if (total == 0)
-        {
-            return new List<LogLevelCountDto>
-            {
-                new() { Level = "Information", Count = 0, Percentage = 0 },
-                new() { Level = "Warning", Count = 0, Percentage = 0 },
-                new() { Level = "Error", Count = 0, Percentage = 0 }
-            };
-        }
-
-        var errorCount = auditStats.FailedOperations;
-        var infoCount = auditStats.SuccessfulOperations;
-        var warningCount = Math.Max(0, total - errorCount - infoCount);
-
-        return new List<LogLevelCountDto>
-        {
-            new() { Level = "Information", Count = infoCount, Percentage = Math.Round((double)infoCount / total * 100, 1) },
-            new() { Level = "Warning", Count = warningCount, Percentage = Math.Round((double)warningCount / total * 100, 1) },
-            new() { Level = "Error", Count = errorCount, Percentage = Math.Round((double)errorCount / total * 100, 1) }
-        };
-    }
-
-    private async Task<List<ApplicationLogCountDto>> GetApplicationCountsAsync(DateTime fromDate, DateTime toDate)
-    {
-        // Use audit log data to show application counts
-        var auditStats = await GetAuditLogStatisticsAsync(fromDate, toDate);
-        
-        if (auditStats.TotalAuditLogs == 0)
-        {
-            return new List<ApplicationLogCountDto>();
-        }
-
-        // For now, group all audit logs under the main application
-        return new List<ApplicationLogCountDto>
-        {
-            new() { Application = "ERPPlatform", Count = auditStats.TotalAuditLogs, ErrorCount = auditStats.FailedOperations }
-        };
-    }
-
-    private async Task<List<RecentLogEntryDto>> GetRecentLogsAsync(int count)
-    {
-        // Convert audit logs to regular log format for display
-        var auditLogs = await GetRecentAuditLogsAsync(count);
-        
-        var logs = auditLogs.Select(audit => new RecentLogEntryDto
-        {
-            Timestamp = audit.ExecutionTime,
-            Level = audit.HasException ? "Error" : "Information",
-            Application = "ERPPlatform",
-            Message = $"{audit.ServiceName}.{audit.MethodName} - {audit.HttpMethod} {audit.HttpStatusCode}",
-            UserId = audit.UserId,
-            Properties = new Dictionary<string, object>
-            {
-                ["RequestId"] = Guid.NewGuid().ToString(),
-                ["Duration"] = audit.ExecutionDuration,
-                ["ServiceName"] = audit.ServiceName ?? "Unknown",
-                ["MethodName"] = audit.MethodName ?? "Unknown",
-                ["HttpStatusCode"] = audit.HttpStatusCode ?? 0
-            },
-            Exception = audit.Exception,
-            HasException = audit.HasException,
-            HttpStatusCode = audit.HttpStatusCode,
-            ExecutionDuration = audit.ExecutionDuration,
-            ServiceName = audit.ServiceName,
-            MethodName = audit.MethodName
-        }).ToList();
-        
-        return logs;
-    }
-
-    private static string? ExtractPropertyValue(string? properties, string key)
-    {
-        if (string.IsNullOrWhiteSpace(properties)) return null;
-        
-        try
-        {
-            var json = JsonDocument.Parse(properties);
-            if (json.RootElement.TryGetProperty(key, out var element))
-            {
-                return element.GetString();
-            }
-        }
-        catch
-        {
-            // Fallback to simple string parsing
-            var pattern = $"\"{key}\":\"";
-            var startIndex = properties.IndexOf(pattern);
-            if (startIndex >= 0)
-            {
-                startIndex += pattern.Length;
-                var endIndex = properties.IndexOf("\"", startIndex);
-                if (endIndex > startIndex)
-                {
-                    return properties.Substring(startIndex, endIndex - startIndex);
-                }
-            }
-        }
-        
-        return null;
-    }
-
-    private static double ExtractNumericPropertyValue(string? properties, string key)
-    {
-        if (string.IsNullOrWhiteSpace(properties)) return 0;
-        
-        try
-        {
-            var json = JsonDocument.Parse(properties);
-            if (json.RootElement.TryGetProperty(key, out var element))
-            {
-                return element.GetDouble();
-            }
-        }
-        catch
-        {
-            // Fallback parsing
-        }
-        
-        return 0;
-    }
-
-    private static Dictionary<string, object> ParseProperties(string? properties)
-    {
-        if (string.IsNullOrWhiteSpace(properties)) return new Dictionary<string, object>();
-        
-        try
-        {
-            return JsonSerializer.Deserialize<Dictionary<string, object>>(properties) ?? new Dictionary<string, object>();
-        }
-        catch
-        {
-            return new Dictionary<string, object>();
-        }
-    }
-
-    private static string? ExtractExceptionType(string? exception)
-    {
-        if (string.IsNullOrWhiteSpace(exception)) return null;
-        
-        var lines = exception.Split('\n');
-        var firstLine = lines[0].Trim();
-        var colonIndex = firstLine.IndexOf(':');
-        
-        return colonIndex > 0 ? firstLine.Substring(0, colonIndex).Trim() : firstLine;
-    }
-
-    private static string? ExtractFirstLineOfException(string? exception)
-    {
-        if (string.IsNullOrWhiteSpace(exception)) return null;
-        
-        var lines = exception.Split('\n');
-        var firstLine = lines[0].Trim();
-        var colonIndex = firstLine.IndexOf(':');
-        
-        return colonIndex > 0 ? firstLine.Substring(colonIndex + 1).Trim() : firstLine;
-    }
-
-    private static string GetApplicationNameFromService(string serviceName)
-    {
-        if (string.IsNullOrWhiteSpace(serviceName))
-            return "ERPPlatform.Unknown";
-            
-        // Map service names to application names
-        if (serviceName.Contains("Controllers") || serviceName.Contains("Controller"))
-            return "ERPPlatform.HttpApi.Host";
-        else if (serviceName.Contains("AppService") || serviceName.Contains("Application"))
-            return "ERPPlatform.Application";
-        else if (serviceName.Contains("Web") || serviceName.Contains("Pages"))
-            return "ERPPlatform.Web";
-        else if (serviceName.Contains("AuthServer"))
-            return "ERPPlatform.AuthServer";
-        else
-            return "ERPPlatform.Application"; // Default fallback
-    }
-
-    private static string EscapeCsv(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
-        return value.Replace("\"", "\"\"").Replace("\n", " ").Replace("\r", "");
+        return await Task.FromResult(Encoding.UTF8.GetBytes(csv.ToString()));
     }
 
     #endregion
