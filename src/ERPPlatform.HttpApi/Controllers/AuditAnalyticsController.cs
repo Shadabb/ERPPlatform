@@ -8,14 +8,14 @@ using Volo.Abp.AspNetCore.Mvc;
 namespace ERPPlatform.Controllers;
 
 [ApiController]
-[Route("api/log-analytics")]
-public class LogAnalyticsDashboardController : AbpControllerBase
+[Route("api/audit-analytics")]
+public class AuditAnalyticsController : AbpControllerBase
 {
-    private readonly ILogAnalyticsDashboardAppService _logAnalyticsService;
+    private readonly IAuditAnalyticsAppService _auditAnalyticsService;
 
-    public LogAnalyticsDashboardController(ILogAnalyticsDashboardAppService logAnalyticsService)
+    public AuditAnalyticsController(IAuditAnalyticsAppService auditAnalyticsService)
     {
-        _logAnalyticsService = logAnalyticsService;
+        _auditAnalyticsService = auditAnalyticsService;
     }
 
     /// <summary>
@@ -24,7 +24,7 @@ public class LogAnalyticsDashboardController : AbpControllerBase
     [HttpGet("dashboard")]
     public async Task<ActionResult<LogAnalyticsDashboardDto>> GetDashboardAsync()
     {
-        var dashboard = await _logAnalyticsService.GetDashboardDataAsync();
+        var dashboard = await _auditAnalyticsService.GetDashboardDataAsync();
         return Ok(dashboard);
     }
 
@@ -37,7 +37,7 @@ public class LogAnalyticsDashboardController : AbpControllerBase
         [FromQuery] DateTime toDate)
     {
         var request = new DashboardRangeRequestDto { FromDate = fromDate, ToDate = toDate };
-        var dashboard = await _logAnalyticsService.GetDashboardDataByRangeAsync(request);
+        var dashboard = await _auditAnalyticsService.GetDashboardDataByRangeAsync(request);
         return Ok(dashboard);
     }
 
@@ -48,7 +48,7 @@ public class LogAnalyticsDashboardController : AbpControllerBase
     [Microsoft.AspNetCore.Mvc.IgnoreAntiforgeryToken]
     public async Task<ActionResult<LogSearchResponseDto>> SearchLogsAsync([FromBody] LogSearchRequestDto request)
     {
-        var result = await _logAnalyticsService.SearchLogsAsync(request);
+        var result = await _auditAnalyticsService.SearchLogsAsync(request);
         return Ok(result);
     }
 
@@ -58,7 +58,7 @@ public class LogAnalyticsDashboardController : AbpControllerBase
     [HttpGet("applications")]
     public async Task<ActionResult<List<string>>> GetApplicationsAsync()
     {
-        var applications = await _logAnalyticsService.GetApplicationsAsync();
+        var applications = await _auditAnalyticsService.GetApplicationsAsync();
         return Ok(applications);
     }
 
@@ -69,7 +69,7 @@ public class LogAnalyticsDashboardController : AbpControllerBase
     [HttpGet("system-health")]
     public async Task<ActionResult<Dictionary<string, object>>> GetSystemHealthAsync()
     {
-        var health = await _logAnalyticsService.GetSystemHealthAsync();
+        var health = await _auditAnalyticsService.GetSystemHealthAsync();
         return Ok(health);
     }
 
@@ -82,7 +82,7 @@ public class LogAnalyticsDashboardController : AbpControllerBase
         [FromQuery] int take = 20)
     {
         var request = new RecentLogsRequestDto { Skip = skip, Take = take };
-        var result = await _logAnalyticsService.GetRecentLogsAsync(request);
+        var result = await _auditAnalyticsService.GetRecentLogsAsync(request);
         return Ok(result);
     }
 
@@ -106,7 +106,7 @@ public class LogAnalyticsDashboardController : AbpControllerBase
             Category = request.Category,
             Format = format 
         };
-        var data = await _logAnalyticsService.ExportLogsAsync(exportRequest);
+        var data = await _auditAnalyticsService.ExportLogsAsync(exportRequest);
         
         var fileName = $"logs_export_{DateTime.UtcNow:yyyyMMdd_HHmmss}.{format.ToLower()}";
         var contentType = format.ToLower() == "json" ? "application/json" : "text/csv";
@@ -125,7 +125,7 @@ public class LogAnalyticsDashboardController : AbpControllerBase
         [FromQuery] DateTime toDate)
     {
         var request = new AuditLogSearchRequestDto { FromDate = fromDate, ToDate = toDate };
-        var statistics = await _logAnalyticsService.GetAuditLogStatisticsAsync(request);
+        var statistics = await _auditAnalyticsService.GetAuditLogStatisticsAsync(request);
         return Ok(statistics);
     }
 
@@ -135,7 +135,7 @@ public class LogAnalyticsDashboardController : AbpControllerBase
     [HttpPost("audit-logs/search")]
     public async Task<ActionResult<AuditLogSearchResponseDto>> SearchAuditLogsAsync([FromBody] AuditLogSearchRequestDto request)
     {
-        var result = await _logAnalyticsService.SearchAuditLogsAsync(request);
+        var result = await _auditAnalyticsService.SearchAuditLogsAsync(request);
         return Ok(result);
     }
 
@@ -146,7 +146,7 @@ public class LogAnalyticsDashboardController : AbpControllerBase
     public async Task<ActionResult<List<RecentAuditLogDto>>> GetRecentAuditLogsAsync([FromQuery] int count = 20)
     {
         var request = new RecentAuditLogsRequestDto { Take = count };
-        var auditLogs = await _logAnalyticsService.GetRecentAuditLogsAsync(request);
+        var auditLogs = await _auditAnalyticsService.GetRecentAuditLogsAsync(request);
         return Ok(auditLogs);
     }
 
@@ -159,7 +159,7 @@ public class LogAnalyticsDashboardController : AbpControllerBase
         [FromQuery] int take = 20)
     {
         var request = new RecentAuditLogsRequestDto { Skip = skip, Take = take };
-        var result = await _logAnalyticsService.GetRecentAuditLogsAsync(request);
+        var result = await _auditAnalyticsService.GetRecentAuditLogsAsync(request);
         return Ok(result);
     }
 
@@ -170,7 +170,7 @@ public class LogAnalyticsDashboardController : AbpControllerBase
     public async Task<ActionResult<List<TopUserActivityDto>>> GetTopUserActivitiesAsync([FromQuery] int count = 10)
     {
         var request = new TopUserActivitiesRequestDto { Count = count };
-        var activities = await _logAnalyticsService.GetTopUserActivitiesAsync(request);
+        var activities = await _auditAnalyticsService.GetTopUserActivitiesAsync(request);
         return Ok(activities);
     }
 
@@ -181,7 +181,7 @@ public class LogAnalyticsDashboardController : AbpControllerBase
     public async Task<ActionResult<List<AuditLogMethodCountDto>>> GetTopAuditMethodsAsync([FromQuery] int count = 10)
     {
         var request = new TopAuditMethodsRequestDto { Count = count };
-        var methods = await _logAnalyticsService.GetTopAuditMethodsAsync(request);
+        var methods = await _auditAnalyticsService.GetTopAuditMethodsAsync(request);
         return Ok(methods);
     }
 
@@ -207,7 +207,7 @@ public class LogAnalyticsDashboardController : AbpControllerBase
             ClientIp = request.ClientIp,
             Format = format 
         };
-        var data = await _logAnalyticsService.ExportAuditLogsAsync(exportRequest);
+        var data = await _auditAnalyticsService.ExportAuditLogsAsync(exportRequest);
         
         var fileName = $"audit_logs_export_{DateTime.UtcNow:yyyyMMdd_HHmmss}.{format.ToLower()}";
         var contentType = format.ToLower() == "json" ? "application/json" : "text/csv";

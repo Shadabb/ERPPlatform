@@ -17,18 +17,18 @@ using ERPPlatform.Permissions;
 namespace ERPPlatform.LogAnalytics;
 
 /// <summary>
-/// ABP-compliant log analytics dashboard service with proper authorization, caching, and AutoMapper integration
+/// ABP-compliant audit analytics dashboard service with proper authorization, caching, and AutoMapper integration
 /// Follows ABP framework best practices for application services
 /// </summary>
 [Authorize(ERPPlatformPermissions.LogAnalytics.Default)]
-public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalyticsDashboardAppService
+public class AuditAnalyticsAppService : ApplicationService, IAuditAnalyticsAppService
 {
     private readonly IRepository<AuditLog, Guid> _auditLogRepository;
     private readonly LogAnalyticsDashboardHelper _dashboardHelper;
     private readonly IDistributedCache<LogAnalyticsDashboardDto> _dashboardCache;
     private readonly IDistributedCache<SystemHealthDto> _healthCache;
 
-    public LogAnalyticsDashboardAppService(
+    public AuditAnalyticsAppService(
         IRepository<AuditLog, Guid> auditLogRepository,
         LogAnalyticsDashboardHelper dashboardHelper,
         IDistributedCache<LogAnalyticsDashboardDto> dashboardCache,

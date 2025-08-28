@@ -4,10 +4,10 @@ using Volo.Abp.Application.Services;
 namespace ERPPlatform.LogAnalytics;
 
 /// <summary>
-/// Application service for log analytics dashboard operations
+/// Application service for audit analytics dashboard operations
 /// Provides comprehensive logging analytics, audit log insights, and system health monitoring
 /// </summary>
-public interface ILogAnalyticsDashboardAppService : IApplicationService
+public interface IAuditAnalyticsAppService : IApplicationService
 {
     #region Dashboard Operations
     
