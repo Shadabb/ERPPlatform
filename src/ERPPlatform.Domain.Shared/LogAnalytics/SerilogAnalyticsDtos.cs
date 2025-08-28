@@ -27,11 +27,10 @@ public static class SerilogAnalyticsConstants
 }
 
 /// <summary>
-/// Serilog entry DTO representing ApplicationLogs table
+/// Serilog entry DTO representing seriloglogs table
 /// </summary>
 public class SerilogEntryDto
 {
-    public int Id { get; set; }
     public string Message { get; set; } = string.Empty;
     public string Level { get; set; } = string.Empty;
     public DateTime TimeStamp { get; set; }
@@ -68,6 +67,26 @@ public class SerilogEntryDto
                 <= 5000 => "Slow",
                 _ => "Critical"
             };
+        }
+    }
+    
+    public string Application
+    {
+        get
+        {
+            try
+            {
+                using var document = System.Text.Json.JsonDocument.Parse(Properties);
+                if (document.RootElement.TryGetProperty("Application", out var app))
+                {
+                    return app.GetString() ?? "Unknown";
+                }
+            }
+            catch
+            {
+                // Ignore parsing errors
+            }
+            return "Unknown";
         }
     }
 }
@@ -123,9 +142,11 @@ public class SerilogLevelCountDto
 public class SerilogHourlyTrendDto
 {
     public DateTime Hour { get; set; }
+    public int TotalCount { get; set; }
     public int TotalRequests { get; set; }
     public int ErrorCount { get; set; }
     public int WarningCount { get; set; }
+    public int InfoCount { get; set; }
     public double AvgResponseTime { get; set; }
     public int SlowRequestCount { get; set; }
 }
@@ -190,6 +211,7 @@ public class SerilogRecentEntryDto
     public string? UserId { get; set; }
     public bool HasException { get; set; }
     public string? Exception { get; set; }
+    public string Application { get; set; } = "Unknown";
 }
 
 /// <summary>

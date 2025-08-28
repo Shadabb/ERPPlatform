@@ -62,6 +62,9 @@ public class ERPPlatformDbContext :
     // Serilog ApplicationLogs table (created by Serilog PostgreSQL sink)
     public DbSet<ApplicationLog> ApplicationLogs { get; set; }
 
+    // Actual seriloglogs table (created by Serilog.Sinks.PostgreSQL)
+    public DbSet<SerilogEntry> SerilogEntries { get; set; }
+
     #endregion
 
     public ERPPlatformDbContext(DbContextOptions<ERPPlatformDbContext> options)
@@ -116,6 +119,26 @@ public class ERPPlatformDbContext :
         builder.ConfigureTenantManagement();
 
         /* Configure your own tables/entities inside here */
+
+        // Configure SerilogEntry for the seriloglogs table created by Serilog.Sinks.PostgreSQL
+        // Note: Since the Serilog table doesn't have a primary key, we'll use a keyless entity
+        builder.Entity<SerilogEntry>(b =>
+        {
+            b.ToTable("seriloglogs");
+            b.HasNoKey(); // Keyless entity since Serilog table has no primary key
+            
+            b.Property(x => x.Message).HasColumnName("message");
+            b.Property(x => x.MessageTemplate).HasColumnName("message_template");
+            b.Property(x => x.Level).HasColumnName("level");
+            b.Property(x => x.Timestamp).HasColumnName("timestamp");
+            b.Property(x => x.Exception).HasColumnName("exception");
+            b.Property(x => x.LogEvent).HasColumnName("log_event");
+            
+            // Add indexes for common queries (if they don't exist)
+            // Note: These will only be created if you run migrations
+            b.HasIndex(x => x.Timestamp).HasDatabaseName("IX_seriloglogs_timestamp");
+            b.HasIndex(x => x.Level).HasDatabaseName("IX_seriloglogs_level");
+        });
 
         //builder.Entity<YourEntity>(b =>
         //{

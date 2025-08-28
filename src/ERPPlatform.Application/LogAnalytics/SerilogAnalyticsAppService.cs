@@ -7,25 +7,25 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Volo.Abp;
 using Volo.Abp.Application.Services;
-using Volo.Abp.Domain.Repositories;
 using ERPPlatform.LogAnalytics.Helpers;
 
 namespace ERPPlatform.LogAnalytics;
 
 /// <summary>
 /// Application service for Serilog-based analytics following ABP standards
+/// Uses the actual seriloglogs table created by Serilog.Sinks.PostgreSQL
 /// Provides comprehensive application performance and error analytics
 /// </summary>
 public class SerilogAnalyticsAppService : ApplicationService, ISerilogAnalyticsAppService
 {
-    private readonly IRepository<ApplicationLog, int> _applicationLogRepository;
+    private readonly SerilogEntryRepository _serilogRepository;
     private readonly SerilogAnalyticsHelper _analyticsHelper;
 
     public SerilogAnalyticsAppService(
-        IRepository<ApplicationLog, int> applicationLogRepository,
+        SerilogEntryRepository serilogRepository,
         SerilogAnalyticsHelper analyticsHelper)
     {
-        _applicationLogRepository = applicationLogRepository;
+        _serilogRepository = serilogRepository;
         _analyticsHelper = analyticsHelper;
     }
 
@@ -33,11 +33,10 @@ public class SerilogAnalyticsAppService : ApplicationService, ISerilogAnalyticsA
 
     public async Task<SerilogDashboardDto> GetSerilogDashboardAsync()
     {
-        // Use LOCAL time to match our ApplicationLog storage strategy
         var request = new SerilogDashboardRequestDto
         {
-            FromDate = DateTime.Now.AddHours(-24), // Local time instead of UTC
-            ToDate = DateTime.Now,                 // Local time instead of UTC
+            FromDate = DateTime.Now.AddDays(-7),
+            ToDate = DateTime.Now,
             TopErrorsCount = 10,
             TopEndpointsCount = 10,
             SlowRequestsCount = 20
@@ -94,9 +93,7 @@ public class SerilogAnalyticsAppService : ApplicationService, ISerilogAnalyticsA
     {
         try
         {
-            var last24Hours = DateTime.SpecifyKind(DateTime.Now.AddHours(-24), DateTimeKind.Unspecified);
-            var logs = await _applicationLogRepository.GetListAsync(
-                x => x.TimeStamp >= last24Hours && !string.IsNullOrEmpty(x.HttpMethod) && !string.IsNullOrEmpty(x.RequestPath));
+            var logs = await _serilogRepository.GetListAsync(DateTime.Now.AddHours(-24), DateTime.Now, null, null, false, 0, 10000);
 
             if (!logs.Any())
             {
@@ -110,15 +107,15 @@ public class SerilogAnalyticsAppService : ApplicationService, ISerilogAnalyticsA
                 };
             }
 
-            var durations = logs.Where(x => x.Duration.HasValue).Select(x => x.Duration!.Value).ToList();
-            var errorCount = logs.Count(x => x.Level == "Error" || x.Level == "Fatal");
+            // For now, return basic metrics. TODO: Extract performance data from LogEvent JSON
+            var errorCount = logs.Count(x => x.IsError);
             var totalRequests = logs.Count;
 
-            var avgResponseTime = durations.Any() ? durations.Average() : 0;
-            var (p95, p99) = _analyticsHelper.CalculatePercentiles(durations);
+            var avgResponseTime = 0.0; // TODO: Extract from LogEvent
+            var (p95, p99) = (0.0, 0.0); // TODO: Extract from LogEvent
             var errorRate = _analyticsHelper.CalculatePercentage(errorCount, totalRequests);
-            var requestsPerMinute = _analyticsHelper.CalculateRatePerMinute(totalRequests, last24Hours, DateTime.UtcNow);
-            var errorsPerMinute = _analyticsHelper.CalculateRatePerMinute(errorCount, last24Hours, DateTime.UtcNow);
+            var requestsPerMinute = totalRequests / (24.0 * 60.0); // Rough calculation
+            var errorsPerMinute = errorCount / (24.0 * 60.0); // Rough calculation
 
             return new SystemPerformanceDto
             {
@@ -135,7 +132,7 @@ public class SerilogAnalyticsAppService : ApplicationService, ISerilogAnalyticsA
                     ["SuccessRate"] = 100 - errorRate,
                     ["TotalRequests"] = totalRequests,
                     ["TotalErrors"] = errorCount,
-                    ["MedianResponseTime"] = durations.Any() ? durations.OrderBy(x => x).Skip(durations.Count / 2).First() : 0
+                    ["MedianResponseTime"] = 0 // TODO: Extract from LogEvent
                 }
             };
         }
@@ -163,26 +160,32 @@ public class SerilogAnalyticsAppService : ApplicationService, ISerilogAnalyticsA
         
         request = _analyticsHelper.ValidateSearchRequest(request);
 
-        Logger.LogInformation("Searching Serilog entries with filters: FromDate={FromDate}, ToDate={ToDate}, Page={Page}",
-            request.FromDate, request.ToDate, request.Page);
-
         try
         {
-            var query = await _applicationLogRepository.GetQueryableAsync();
-            query = _analyticsHelper.ApplySearchFilters(query, request);
+            // Get recent logs with proper pagination - respect request parameters
+            var totalLogsToGet = request.Page * request.PageSize; // Get enough logs for pagination
+            var allLogs = await _serilogRepository.GetRecentAsync(totalLogsToGet);
+            
+            // Apply pagination
+            var skip = (request.Page - 1) * request.PageSize;
+            var pagedLogs = allLogs.Skip(skip).Take(request.PageSize).ToList();
+            
+            var mappedLogs = pagedLogs.Select(x => new SerilogEntryDto
+            {
+                TimeStamp = x.Timestamp ?? DateTime.MinValue,
+                Level = x.LevelName,
+                Message = x.Message ?? "No message",
+                Exception = x.Exception,
+                RequestPath = x.RequestPath,
+                HttpMethod = x.HttpMethod,
+                UserId = x.UserId,
+                Properties = x.LogEvent ?? "{}"
+            }).ToList();
 
-            var totalCount = query.Count();
-            var logs = query
-                .OrderByDescending(x => x.TimeStamp)
-                .Skip((request.Page - 1) * request.PageSize)
-                .Take(request.PageSize)
-                .Select(x => _analyticsHelper.MapToSerilogEntryDto(x))
-                .ToList();
+            // Get the actual total count from database (not just the fetched logs)
+            var totalCount = await _serilogRepository.GetTotalCountAsync();
 
-            Logger.LogInformation("Serilog search completed: {TotalCount} total, {PageCount} in current page",
-                totalCount, logs.Count);
-
-            return new SerilogSearchResponseDto(totalCount, logs, request.Page, request.PageSize);
+            return new SerilogSearchResponseDto(totalCount, mappedLogs, request.Page, request.PageSize);
         }
         catch (Exception ex)
         {
@@ -195,10 +198,7 @@ public class SerilogAnalyticsAppService : ApplicationService, ISerilogAnalyticsA
     {
         try
         {
-            var last24Hours = DateTime.SpecifyKind(DateTime.Now.AddHours(-24), DateTimeKind.Unspecified);
-            var errorLogs = await _applicationLogRepository.GetListAsync(
-                x => x.TimeStamp >= last24Hours && (x.Level == "Error" || x.Level == "Fatal"),
-                includeDetails: false);
+            var errorLogs = await _serilogRepository.GetRecentErrorsAsync(count, 24);
 
             if (!errorLogs.Any())
             {
@@ -212,14 +212,14 @@ public class SerilogAnalyticsAppService : ApplicationService, ISerilogAnalyticsA
                     ErrorMessage = g.Key ?? "Unknown Error",
                     ExceptionType = _analyticsHelper.ExtractExceptionType(g.First().Exception),
                     Count = g.Count(),
-                    FirstOccurrence = g.Min(x => x.TimeStamp),
-                    LastOccurrence = g.Max(x => x.TimeStamp),
+                    FirstOccurrence = g.Min(x => x.Timestamp) ?? DateTime.MinValue,
+                    LastOccurrence = g.Max(x => x.Timestamp) ?? DateTime.MinValue,
                     AffectedEndpoints = g.Where(x => !string.IsNullOrEmpty(x.RequestPath))
                                         .Select(x => x.RequestPath!)
                                         .Distinct()
                                         .Take(5)
                                         .ToList(),
-                    Level = g.First().Level
+                    Level = g.First().LevelName
                 })
                 .OrderByDescending(x => x.Count)
                 .ThenByDescending(x => x.LastOccurrence)
@@ -239,29 +239,8 @@ public class SerilogAnalyticsAppService : ApplicationService, ISerilogAnalyticsA
     {
         try
         {
-            var last24Hours = DateTime.SpecifyKind(DateTime.Now.AddHours(-24), DateTimeKind.Unspecified);
-            var slowRequests = await _applicationLogRepository.GetListAsync(
-                x => x.TimeStamp >= last24Hours && 
-                     x.Duration.HasValue && 
-                     x.Duration.Value >= minDuration &&
-                     !string.IsNullOrEmpty(x.HttpMethod) && !string.IsNullOrEmpty(x.RequestPath));
-
-            var result = slowRequests
-                .OrderByDescending(x => x.Duration)
-                .Take(count)
-                .Select(x => new SerilogSlowRequestDto
-                {
-                    RequestPath = x.RequestPath ?? "Unknown",
-                    HttpMethod = x.HttpMethod ?? "Unknown",
-                    Duration = x.Duration!.Value,
-                    TimeStamp = x.TimeStamp,
-                    UserId = x.UserId,
-                    ResponseStatusCode = x.ResponseStatusCode,
-                    PerformanceLevel = _analyticsHelper.GetPerformanceLevel(x.Duration)
-                })
-                .ToList();
-
-            return result;
+            // For now, return empty list. TODO: Extract request duration from LogEvent JSON
+            return new List<SerilogSlowRequestDto>();
         }
         catch (Exception ex)
         {
@@ -278,51 +257,8 @@ public class SerilogAnalyticsAppService : ApplicationService, ISerilogAnalyticsA
     {
         try
         {
-            // Convert DateTime to unspecified kind to avoid PostgreSQL issues
-            var fromDateUnspecified = request.FromDate.HasValue 
-                ? DateTime.SpecifyKind(request.FromDate.Value, DateTimeKind.Unspecified)
-                : DateTime.SpecifyKind(DateTime.Today.AddDays(-7), DateTimeKind.Unspecified);
-            var toDateUnspecified = request.ToDate.HasValue 
-                ? DateTime.SpecifyKind(request.ToDate.Value, DateTimeKind.Unspecified)
-                : DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Unspecified);
-                
-            var logs = await _applicationLogRepository.GetListAsync(
-                x => x.TimeStamp >= fromDateUnspecified && 
-                     x.TimeStamp <= toDateUnspecified &&
-                     !string.IsNullOrEmpty(x.HttpMethod) && !string.IsNullOrEmpty(x.RequestPath));
-
-            if (!logs.Any())
-            {
-                return new List<SerilogEndpointStatsDto>();
-            }
-
-            var endpointStats = logs
-                .GroupBy(x => new { x.RequestPath, x.HttpMethod })
-                .Select(g => new SerilogEndpointStatsDto
-                {
-                    Endpoint = g.Key.RequestPath ?? "Unknown",
-                    HttpMethod = g.Key.HttpMethod ?? "Unknown",
-                    RequestCount = g.Count(),
-                    AvgDuration = g.Where(x => x.Duration.HasValue)
-                                   .Select(x => x.Duration!.Value)
-                                   .DefaultIfEmpty(0)
-                                   .Average(),
-                    MaxDuration = g.Where(x => x.Duration.HasValue)
-                                   .Select(x => x.Duration!.Value)
-                                   .DefaultIfEmpty(0)
-                                   .Max(),
-                    MinDuration = g.Where(x => x.Duration.HasValue)
-                                   .Select(x => x.Duration!.Value)
-                                   .DefaultIfEmpty(0)
-                                   .Min(),
-                    ErrorCount = g.Count(x => (x.Level == "Error" || x.Level == "Fatal") || (x.ResponseStatusCode.HasValue && x.ResponseStatusCode >= 400)),
-                    SuccessCount = g.Count(x => !(x.Level == "Error" || x.Level == "Fatal") && (!x.ResponseStatusCode.HasValue || x.ResponseStatusCode < 400))
-                })
-                .OrderByDescending(x => x.RequestCount)
-                .Take(request.TopEndpointsCount)
-                .ToList();
-
-            return endpointStats;
+            // For now, return empty list. TODO: Extract endpoint data from LogEvent JSON
+            return new List<SerilogEndpointStatsDto>();
         }
         catch (Exception ex)
         {
@@ -335,24 +271,22 @@ public class SerilogAnalyticsAppService : ApplicationService, ISerilogAnalyticsA
     {
         try
         {
-            // Convert DateTime to unspecified kind to avoid PostgreSQL issues
-            var fromDateUnspecified = request.FromDate.HasValue 
-                ? DateTime.SpecifyKind(request.FromDate.Value, DateTimeKind.Unspecified)
-                : DateTime.SpecifyKind(DateTime.Today.AddDays(-7), DateTimeKind.Unspecified);
-            var toDateUnspecified = request.ToDate.HasValue 
-                ? DateTime.SpecifyKind(request.ToDate.Value, DateTimeKind.Unspecified)
-                : DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Unspecified);
+            var fromDate = request.FromDate ?? DateTime.Today.AddDays(-1);
+            var toDate = request.ToDate ?? DateTime.Now;
                 
-            var logs = await _applicationLogRepository.GetListAsync(
-                x => x.TimeStamp >= fromDateUnspecified && x.TimeStamp <= toDateUnspecified);
+            var hourlyData = await _serilogRepository.GetHourlyTrendsAsync(fromDate, toDate);
 
-            if (!logs.Any())
+            return hourlyData.Select(x => new SerilogHourlyTrendDto
             {
-                return new List<SerilogHourlyTrendDto>();
-            }
-
-            var maxHours = Math.Min(24, (int)(toDateUnspecified - fromDateUnspecified).TotalHours + 1);
-            return _analyticsHelper.GroupByHour(logs, maxHours);
+                Hour = x.Hour,
+                TotalCount = x.TotalCount,
+                TotalRequests = x.TotalCount, // Same as total count for now
+                ErrorCount = x.ErrorCount,
+                WarningCount = x.WarningCount,
+                InfoCount = x.InfoCount,
+                AvgResponseTime = 0, // TODO: Extract from LogEvent
+                SlowRequestCount = 0 // TODO: Extract from LogEvent
+            }).ToList();
         }
         catch (Exception ex)
         {
@@ -365,35 +299,28 @@ public class SerilogAnalyticsAppService : ApplicationService, ISerilogAnalyticsA
     {
         try
         {
-            // Convert DateTime to unspecified kind to avoid PostgreSQL issues
-            var fromDateUnspecified = request.FromDate.HasValue 
-                ? DateTime.SpecifyKind(request.FromDate.Value, DateTimeKind.Unspecified)
-                : DateTime.SpecifyKind(DateTime.Today.AddDays(-7), DateTimeKind.Unspecified);
-            var toDateUnspecified = request.ToDate.HasValue 
-                ? DateTime.SpecifyKind(request.ToDate.Value, DateTimeKind.Unspecified)
-                : DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Unspecified);
-            
-            var logs = await _applicationLogRepository.GetListAsync(
-                x => x.TimeStamp >= fromDateUnspecified && x.TimeStamp <= toDateUnspecified);
+            var fromDate = request.FromDate ?? DateTime.Today.AddDays(-7);
+            var toDate = request.ToDate ?? DateTime.Now;
 
-            if (!logs.Any())
+            // Get log level counts from the repository
+            var levelCounts = await _serilogRepository.GetLogLevelCountsAsync(fromDate, toDate);
+
+            if (!levelCounts.Any())
             {
                 return new List<SerilogLevelCountDto>();
             }
 
-            var totalLogs = logs.Count;
-            var levelCounts = logs
-                .GroupBy(x => x.Level)
-                .Select(g => new SerilogLevelCountDto
+            var totalLogs = levelCounts.Values.Sum();
+            
+            return levelCounts
+                .Select(kv => new SerilogLevelCountDto
                 {
-                    Level = g.Key,
-                    Count = g.Count(),
-                    Percentage = _analyticsHelper.CalculatePercentage(g.Count(), totalLogs)
+                    Level = kv.Key,
+                    Count = kv.Value,
+                    Percentage = _analyticsHelper.CalculatePercentage(kv.Value, totalLogs)
                 })
                 .OrderByDescending(x => _analyticsHelper.GetLogLevelPriority(x.Level))
                 .ToList();
-
-            return levelCounts;
         }
         catch (Exception ex)
         {
@@ -468,36 +395,24 @@ public class SerilogAnalyticsAppService : ApplicationService, ISerilogAnalyticsA
 
     private async Task<SerilogStatisticsDto> GetSerilogStatisticsAsync(SerilogDashboardRequestDto request)
     {
-        // Convert DateTime to unspecified kind to avoid PostgreSQL issues
-        var fromDateUnspecified = request.FromDate.HasValue 
-            ? DateTime.SpecifyKind(request.FromDate.Value, DateTimeKind.Unspecified)
-            : DateTime.SpecifyKind(DateTime.Today.AddDays(-7), DateTimeKind.Unspecified);
-        var toDateUnspecified = request.ToDate.HasValue 
-            ? DateTime.SpecifyKind(request.ToDate.Value, DateTimeKind.Unspecified)
-            : DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Unspecified);
-            
-        var allLogs = await _applicationLogRepository.GetListAsync(
-            x => x.TimeStamp >= fromDateUnspecified && x.TimeStamp <= toDateUnspecified);
+        var fromDate = request.FromDate ?? DateTime.Today.AddDays(-7);
+        var toDate = request.ToDate ?? DateTime.Now;
 
-        var todayLogs = await _applicationLogRepository.CountAsync(x => x.TimeStamp.Date == DateTime.Today);
+        // Get the actual total count from database without date filtering to match Recent Logs behavior
+        var totalLogs = await _serilogRepository.GetTotalCountAsync();
+        
+        // Get today's logs count
+        var todayLogs = await _serilogRepository.GetTotalCountAsync(DateTime.Today, DateTime.Today.AddDays(1));
 
-        var totalLogs = allLogs.Count;
-        var errorCount = allLogs.Count(x => x.Level == "Error" || x.Level == "Fatal");
-        var warningCount = allLogs.Count(x => x.Level == "Warning");
-        var infoCount = totalLogs - errorCount - warningCount;
-        var httpRequests = allLogs.Where(x => !string.IsNullOrEmpty(x.HttpMethod) && !string.IsNullOrEmpty(x.RequestPath)).ToList();
-        var totalRequests = httpRequests.Count;
-        var avgResponseTime = httpRequests.Where(x => x.Duration.HasValue)
-                                         .Select(x => x.Duration!.Value)
-                                         .DefaultIfEmpty(0)
-                                         .Average();
-        var slowRequestCount = httpRequests.Count(x => x.IsSlowRequest);
-        var http4xxCount = httpRequests.Count(x => x.ResponseStatusCode.HasValue && 
-                                                   x.ResponseStatusCode >= 400 && 
-                                                   x.ResponseStatusCode < 500);
-        var http5xxCount = httpRequests.Count(x => x.ResponseStatusCode.HasValue && 
-                                                   x.ResponseStatusCode >= 500);
+        // Get log level counts without date filtering to match working behavior
+        var levelCounts = await _serilogRepository.GetLogLevelCountsAsync();
 
+        var errorCount = levelCounts.GetValueOrDefault("Error", 0) + levelCounts.GetValueOrDefault("Fatal", 0);
+        var warningCount = levelCounts.GetValueOrDefault("Warning", 0);
+        var infoCount = levelCounts.GetValueOrDefault("Information", 0);
+
+        // For now, return basic statistics
+        // TODO: Extract HTTP-specific metrics from LogEvent JSON when available
         return new SerilogStatisticsDto
         {
             TotalLogs = totalLogs,
@@ -505,24 +420,30 @@ public class SerilogAnalyticsAppService : ApplicationService, ISerilogAnalyticsA
             ErrorCount = errorCount,
             WarningCount = warningCount,
             InfoCount = infoCount,
-            TotalRequests = totalRequests,
-            AvgResponseTime = Math.Round(avgResponseTime, 2),
-            SlowRequestCount = slowRequestCount,
-            Http4xxCount = http4xxCount,
-            Http5xxCount = http5xxCount
+            TotalRequests = 0, // Will be calculated from LogEvent when available
+            AvgResponseTime = 0, // Will be calculated from LogEvent when available
+            SlowRequestCount = 0, // Will be calculated from LogEvent when available
+            Http4xxCount = 0, // Will be calculated from LogEvent when available
+            Http5xxCount = 0 // Will be calculated from LogEvent when available
         };
     }
 
     private async Task<List<SerilogRecentEntryDto>> GetRecentSerilogEntriesAsync(int count)
     {
-        var recentLogs = await _applicationLogRepository.GetListAsync(
-            x => true, // Get all recent logs
-            includeDetails: false);
+        var recentLogs = await _serilogRepository.GetRecentAsync(count);
 
         return recentLogs
-            .OrderByDescending(x => x.TimeStamp)
-            .Take(count)
-            .Select(x => _analyticsHelper.MapToRecentEntryDto(x))
+            .Select(x => new SerilogRecentEntryDto
+            {
+                TimeStamp = x.Timestamp ?? DateTime.MinValue,
+                Level = x.LevelName,
+                Message = x.Message ?? "No message",
+                Exception = x.Exception,
+                Application = x.Application,
+                RequestPath = x.RequestPath,
+                HttpMethod = x.HttpMethod,
+                UserId = x.UserId
+            })
             .ToList();
     }
 

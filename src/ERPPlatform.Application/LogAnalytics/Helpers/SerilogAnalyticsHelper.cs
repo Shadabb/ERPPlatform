@@ -108,7 +108,6 @@ public class SerilogAnalyticsHelper : ITransientDependency
         
         return new SerilogEntryDto
         {
-            Id = log.Id,
             Message = log.Message,
             Level = log.Level,
             TimeStamp = log.TimeStamp,

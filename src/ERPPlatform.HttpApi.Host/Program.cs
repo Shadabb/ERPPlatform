@@ -13,6 +13,9 @@ public class Program
 {
     public async static Task<int> Main(string[] args)
     {
+        // Fix PostgreSQL DateTime Kind issue
+        AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+        
         var configuration = new ConfigurationBuilder()
             .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
             .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Development"}.json", optional: true)
@@ -20,8 +23,9 @@ public class Program
 
         Log.Logger = new LoggerConfiguration()
             .ReadFrom.Configuration(configuration)
-            .Enrich.WithProperty("Application", "ERPPlatform.HttpApi.Host")
             .CreateLogger();
+
+        Log.Information("Serilog configured with PostgreSQL sink - Table: seriloglogs");
 
         try
         {

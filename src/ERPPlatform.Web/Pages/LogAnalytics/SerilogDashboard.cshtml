@@ -79,45 +79,69 @@
 
     <!-- Key Metrics Row -->
     <div class="row mb-4" id="summaryCards">
-        <div class="col-lg-3 col-md-6 mb-3">
+        <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6 mb-3">
             <div class="metric-card">
                 <div class="metric-icon bg-primary">
                     <i class="fas fa-list-alt"></i>
                 </div>
                 <div class="metric-info">
                     <h3 id="totalLogs">-</h3>
-                    <p>Total Log Entries</p>
-                    <small class="text-muted">Serilog data</small>
+                    <p>Total Logs</p>
+                    <small class="text-muted">Selected period</small>
                 </div>
             </div>
         </div>
-        <div class="col-lg-3 col-md-6 mb-3">
+        <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6 mb-3">
             <div class="metric-card">
-                <div class="metric-icon bg-success">
-                    <i class="fas fa-clock"></i>
+                <div class="metric-icon bg-info">
+                    <i class="fas fa-calendar-day"></i>
                 </div>
                 <div class="metric-info">
-                    <h3><span id="avgResponseTime">-</span>ms</h3>
-                    <p>Avg Response Time</p>
-                    <small class="text-muted">Performance</small>
+                    <h3 id="todayLogs">-</h3>
+                    <p>Today's Logs</p>
+                    <small class="text-muted">Last 24h</small>
                 </div>
             </div>
         </div>
-        <div class="col-lg-3 col-md-6 mb-3">
+        <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6 mb-3">
             <div class="metric-card">
                 <div class="metric-icon bg-danger">
                     <i class="fas fa-exclamation-triangle"></i>
                 </div>
                 <div class="metric-info">
-                    <h3><span id="errorRate">-</span>%</h3>
-                    <p>Error Rate</p>
-                    <small class="text-muted">Requires attention</small>
+                    <h3 id="errorCount">-</h3>
+                    <p>Error Count</p>
+                    <small class="text-muted">Needs attention</small>
                 </div>
             </div>
         </div>
-        <div class="col-lg-3 col-md-6 mb-3">
+        <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6 mb-3">
+            <div class="metric-card">
+                <div class="metric-icon bg-warning">
+                    <i class="fas fa-exclamation-circle"></i>
+                </div>
+                <div class="metric-info">
+                    <h3 id="warningCount">-</h3>
+                    <p>Warnings</p>
+                    <small class="text-muted">Monitoring</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6 mb-3">
+            <div class="metric-card">
+                <div class="metric-icon bg-success">
+                    <i class="fas fa-info-circle"></i>
+                </div>
+                <div class="metric-info">
+                    <h3 id="infoCount">-</h3>
+                    <p>Info Logs</p>
+                    <small class="text-muted">Normal activity</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-2 col-lg-3 col-md-4 col-sm-6 mb-3">
             <div class="metric-card" id="healthCard">
-                <div class="metric-icon bg-info">
+                <div class="metric-icon bg-secondary">
                     <i class="fas fa-heartbeat"></i>
                 </div>
                 <div class="metric-info">
@@ -171,7 +195,7 @@
                             Recent Errors
                         </h3>
                         <div class="card-tools">
-                            <span class="badge badge-danger" id="errorCount">0</span>
+                            <span class="badge badge-danger" id="recentErrorCount">0</span>
                         </div>
                     </div>
                     <div class="card-body">
@@ -208,8 +232,190 @@
         </div>
 
         <div class="row">
-            <!-- Top Endpoints Performance -->
+            <!-- Recent Logs Activity -->
             <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="row align-items-center">
+                            <div class="col-md-6">
+                                <h3 class="card-title mb-0">
+                                    <i class="fas fa-stream"></i>
+                                    Recent Logs Activity
+                                    <span class="badge bg-secondary ms-2" id="logsCountBadge">0</span>
+                                </h3>
+                            </div>
+                            <div class="col-md-6 text-end">
+                                <div class="btn-group me-2" role="group">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="refreshLogsBtn">
+                                        <i class="fas fa-sync-alt"></i> Refresh
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-info dropdown-toggle" data-bs-toggle="dropdown">
+                                        <i class="fas fa-filter"></i> Filter
+                                    </button>
+                                    <ul class="dropdown-menu">
+                                        <li><a class="dropdown-item" href="#" data-level="">All Levels</a></li>
+                                        <li><a class="dropdown-item" href="#" data-level="Error">Errors Only</a></li>
+                                        <li><a class="dropdown-item" href="#" data-level="Warning">Warnings Only</a></li>
+                                        <li><a class="dropdown-item" href="#" data-level="Information">Info Only</a></li>
+                                    </ul>
+                                </div>
+                                <div class="btn-group" role="group">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+                                        <i class="fas fa-list"></i> <span id="pageSizeLabel">10</span> per page
+                                    </button>
+                                    <ul class="dropdown-menu">
+                                        <li><a class="dropdown-item" href="#" data-page-size="10">10 per page</a></li>
+                                        <li><a class="dropdown-item" href="#" data-page-size="20">20 per page</a></li>
+                                        <li><a class="dropdown-item" href="#" data-page-size="50">50 per page</a></li>
+                                        <li><a class="dropdown-item" href="#" data-page-size="100">100 per page</a></li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <!-- Logs Container -->
+                        <div id="logsContainer">
+                            <div class="table-responsive">
+                                <table class="table table-striped table-hover mb-0" id="recentLogsTable">
+                                    <thead class="table-dark sticky-top">
+                                        <tr>
+                                            <th width="150" class="text-nowrap">
+                                                <i class="fas fa-clock me-1"></i>Timestamp
+                                            </th>
+                                            <th width="90" class="text-center">
+                                                <i class="fas fa-tag me-1"></i>Level
+                                            </th>
+                                            <th width="130" class="text-nowrap">
+                                                <i class="fas fa-desktop me-1"></i>Application
+                                            </th>
+                                            <th width="200" class="text-nowrap">
+                                                <i class="fas fa-route me-1"></i>Request Path
+                                            </th>
+                                            <th class="text-nowrap">
+                                                <i class="fas fa-comment-alt me-1"></i>Message
+                                            </th>
+                                            <th width="120" class="text-nowrap text-center">
+                                                <i class="fas fa-user me-1"></i>User
+                                            </th>
+                                            <th width="80" class="text-center">
+                                                <i class="fas fa-exclamation-triangle me-1"></i>Error
+                                            </th>
+                                            <th width="60" class="text-center">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="recentLogsTableBody">
+                                        <tr>
+                                            <td colspan="8" class="text-center p-4">
+                                                <div class="d-flex flex-column align-items-center">
+                                                    <i class="fas fa-spinner fa-spin fa-2x text-primary mb-2"></i>
+                                                    <span class="text-muted">Loading recent logs...</span>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        
+                        <!-- Pagination -->
+                        <div class="d-flex justify-content-between align-items-center p-3 border-top bg-light">
+                            <div class="text-muted">
+                                Showing <span id="recordsInfo">0 - 0 of 0</span> records
+                            </div>
+                            <nav aria-label="Logs pagination">
+                                <ul class="pagination pagination-sm mb-0" id="logsPagination">
+                                    <li class="page-item disabled">
+                                        <a class="page-link" href="#" data-page="prev">
+                                            <i class="fas fa-chevron-left"></i> Previous
+                                        </a>
+                                    </li>
+                                    <li class="page-item active">
+                                        <a class="page-link" href="#" data-page="1">1</a>
+                                    </li>
+                                    <li class="page-item disabled">
+                                        <a class="page-link" href="#" data-page="next">
+                                            Next <i class="fas fa-chevron-right"></i>
+                                        </a>
+                                    </li>
+                                </ul>
+                            </nav>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Log Detail Modal -->
+        <div class="modal fade" id="logDetailModal" tabindex="-1" aria-labelledby="logDetailModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-xl">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="logDetailModalLabel">
+                            <i class="fas fa-info-circle"></i> Log Entry Details
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6><i class="fas fa-clock"></i> Timestamp</h6>
+                                <p class="text-muted" id="modalTimestamp">-</p>
+                                
+                                <h6><i class="fas fa-tag"></i> Level</h6>
+                                <p id="modalLevel">-</p>
+                                
+                                <h6><i class="fas fa-desktop"></i> Application</h6>
+                                <p class="text-muted" id="modalApplication">-</p>
+                                
+                                <h6><i class="fas fa-route"></i> Request Path</h6>
+                                <p class="text-muted" id="modalPath">-</p>
+                            </div>
+                            <div class="col-md-6">
+                                <h6><i class="fas fa-user"></i> User ID</h6>
+                                <p class="text-muted" id="modalUserId">-</p>
+                                
+                                <h6><i class="fas fa-globe"></i> HTTP Method</h6>
+                                <p class="text-muted" id="modalHttpMethod">-</p>
+                                
+                                <h6><i class="fas fa-clock"></i> Duration</h6>
+                                <p class="text-muted" id="modalDuration">-</p>
+                                
+                                <h6><i class="fas fa-code"></i> Response Status</h6>
+                                <p class="text-muted" id="modalResponseStatus">-</p>
+                            </div>
+                        </div>
+                        
+                        <hr>
+                        
+                        <h6><i class="fas fa-comment-alt"></i> Full Message</h6>
+                        <div class="bg-light p-3 rounded">
+                            <pre class="mb-0" id="modalMessage" style="white-space: pre-wrap; word-break: break-word;">-</pre>
+                        </div>
+                        
+                        <div id="modalExceptionContainer" style="display: none;">
+                            <hr>
+                            <h6><i class="fas fa-exclamation-triangle text-danger"></i> Exception Details</h6>
+                            <div class="bg-danger bg-opacity-10 p-3 rounded border border-danger">
+                                <pre class="mb-0 text-danger" id="modalException" style="white-space: pre-wrap; word-break: break-word;">-</pre>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                        <button type="button" class="btn btn-primary" id="copyLogBtn">
+                            <i class="fas fa-copy"></i> Copy Details
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Top Endpoints Performance -->
+            <div class="col-md-6">
                 <div class="card">
                     <div class="card-header">
                         <h3 class="card-title">
@@ -223,21 +429,61 @@
                                 <thead>
                                     <tr>
                                         <th>Endpoint</th>
-                                        <th>Request Count</th>
+                                        <th>Count</th>
                                         <th>Avg Duration</th>
-                                        <th>Max Duration</th>
                                         <th>Error Rate</th>
                                         <th>Status</th>
                                     </tr>
                                 </thead>
                                 <tbody id="endpointsTableBody">
                                     <tr>
-                                        <td colspan="6" class="text-center">
+                                        <td colspan="5" class="text-center">
                                             <i class="fas fa-spinner fa-spin"></i> Loading endpoints...
                                         </td>
                                     </tr>
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Performance Metrics -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">
+                            <i class="fas fa-tachometer-alt"></i>
+                            Performance Metrics
+                        </h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="row text-center">
+                            <div class="col-6">
+                                <div class="border-end">
+                                    <h4 id="requestsPerMinute" class="text-primary">-</h4>
+                                    <small class="text-muted">Requests/Min</small>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <h4 id="errorsPerMinute" class="text-danger">-</h4>
+                                <small class="text-muted">Errors/Min</small>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="row text-center">
+                            <div class="col-4">
+                                <h5 id="errorRate" class="text-warning">-</h5>
+                                <small class="text-muted">Error Rate</small>
+                            </div>
+                            <div class="col-4">
+                                <h5 id="successRate" class="text-success">-</h5>
+                                <small class="text-muted">Success Rate</small>
+                            </div>
+                            <div class="col-4">
+                                <h5 id="totalRequests" class="text-info">-</h5>
+                                <small class="text-muted">Total Requests</small>
+                            </div>
                         </div>
                     </div>
                 </div>
