@@ -8,32 +8,37 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
 using Volo.Abp;
 using Volo.Abp.Application.Services;
+using Volo.Abp.Caching;
 using ERPPlatform.LogAnalytics.Helpers;
 using ERPPlatform.Permissions;
 
 namespace ERPPlatform.LogAnalytics;
 
 /// <summary>
-/// Application service for Serilog-based analytics following ABP standards
+/// ABP-compliant Serilog analytics application service
 /// Uses the actual seriloglogs table created by Serilog.Sinks.PostgreSQL
-/// Provides comprehensive application performance and error analytics
+/// Provides comprehensive application performance and error analytics with proper authorization and caching
 /// </summary>
+[Authorize(ERPPlatformPermissions.LogAnalytics.SerilogDashboard)]
 public class SerilogAnalyticsAppService : ApplicationService, ISerilogAnalyticsAppService
 {
     private readonly SerilogEntryRepository _serilogRepository;
     private readonly SerilogAnalyticsHelper _analyticsHelper;
+    private readonly IDistributedCache<SerilogDashboardDto> _dashboardCache;
 
     public SerilogAnalyticsAppService(
         SerilogEntryRepository serilogRepository,
-        SerilogAnalyticsHelper analyticsHelper)
+        SerilogAnalyticsHelper analyticsHelper,
+        IDistributedCache<SerilogDashboardDto> dashboardCache)
     {
         _serilogRepository = serilogRepository;
         _analyticsHelper = analyticsHelper;
+        _dashboardCache = dashboardCache;
     }
 
     #region Dashboard Operations
 
-    public async Task<SerilogDashboardDto> GetSerilogDashboardAsync()
+    public virtual async Task<SerilogDashboardDto> GetSerilogDashboardAsync()
     {
         var request = new SerilogDashboardRequestDto
         {
@@ -47,7 +52,7 @@ public class SerilogAnalyticsAppService : ApplicationService, ISerilogAnalyticsA
         return await GetSerilogDashboardByRangeAsync(request);
     }
 
-    public async Task<SerilogDashboardDto> GetSerilogDashboardByRangeAsync(SerilogDashboardRequestDto request)
+    public virtual async Task<SerilogDashboardDto> GetSerilogDashboardByRangeAsync(SerilogDashboardRequestDto request)
     {
         Check.NotNull(request, nameof(request));
         

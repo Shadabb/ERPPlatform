@@ -4,34 +4,46 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
 using Volo.Abp;
 using Volo.Abp.Application.Services;
 using Volo.Abp.AuditLogging;
+using Volo.Abp.Caching;
 using Volo.Abp.Domain.Repositories;
 using ERPPlatform.LogAnalytics.Helpers;
+using ERPPlatform.Permissions;
 
 namespace ERPPlatform.LogAnalytics;
 
 /// <summary>
-/// Clean implementation of log analytics dashboard service following ABP standards
+/// ABP-compliant log analytics dashboard service with proper authorization, caching, and AutoMapper integration
+/// Follows ABP framework best practices for application services
 /// </summary>
+[Authorize(ERPPlatformPermissions.LogAnalytics.Default)]
 public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalyticsDashboardAppService
 {
     private readonly IRepository<AuditLog, Guid> _auditLogRepository;
     private readonly LogAnalyticsDashboardHelper _dashboardHelper;
+    private readonly IDistributedCache<LogAnalyticsDashboardDto> _dashboardCache;
+    private readonly IDistributedCache<SystemHealthDto> _healthCache;
 
     public LogAnalyticsDashboardAppService(
         IRepository<AuditLog, Guid> auditLogRepository,
-        LogAnalyticsDashboardHelper dashboardHelper)
+        LogAnalyticsDashboardHelper dashboardHelper,
+        IDistributedCache<LogAnalyticsDashboardDto> dashboardCache,
+        IDistributedCache<SystemHealthDto> healthCache)
     {
         _auditLogRepository = auditLogRepository;
         _dashboardHelper = dashboardHelper;
+        _dashboardCache = dashboardCache;
+        _healthCache = healthCache;
     }
 
     #region Dashboard Operations
 
-    public async Task<LogAnalyticsDashboardDto> GetDashboardDataAsync()
+    [Authorize(ERPPlatformPermissions.LogAnalytics.Dashboard)]
+    public virtual async Task<LogAnalyticsDashboardDto> GetDashboardDataAsync()
     {
         var request = new DashboardRangeRequestDto
         {
@@ -43,7 +55,8 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         return await GetDashboardDataByRangeAsync(request);
     }
 
-    public async Task<LogAnalyticsDashboardDto> GetDashboardDataByRangeAsync(DashboardRangeRequestDto request)
+    [Authorize(ERPPlatformPermissions.LogAnalytics.Dashboard)]
+    public virtual async Task<LogAnalyticsDashboardDto> GetDashboardDataByRangeAsync(DashboardRangeRequestDto request)
     {
         Check.NotNull(request, nameof(request));
         
@@ -53,6 +66,15 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
             LogAnalyticsDashboardConstants.DefaultValues.DefaultDashboardDays);
 
         Logger.LogInformation("Getting dashboard data for range {FromDate} to {ToDate}", fromDate, toDate);
+
+        var cacheKey = $"dashboard_{fromDate:yyyyMMdd}_{toDate:yyyyMMdd}_{request.TopCount}_{request.IncludeHourlyTrends}_{request.IncludePerformanceMetrics}";
+        
+        var cachedDashboard = await _dashboardCache.GetAsync(cacheKey);
+        if (cachedDashboard != null)
+        {
+            Logger.LogDebug("Returning cached dashboard data for key {CacheKey}", cacheKey);
+            return cachedDashboard;
+        }
 
         try
         {
@@ -85,6 +107,10 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
             Logger.LogInformation("Dashboard data generated successfully with {TotalLogs} total audit logs", 
                 dashboard.AuditStatistics.TotalAuditLogs);
 
+            await _dashboardCache.SetAsync(cacheKey, dashboard, new Microsoft.Extensions.Caching.Distributed.DistributedCacheEntryOptions 
+            {
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
+            });
             return dashboard;
         }
         catch (Exception ex)
@@ -94,11 +120,19 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         }
     }
 
-    public async Task<SystemHealthDto> GetSystemHealthAsync()
+    [Authorize(ERPPlatformPermissions.LogAnalytics.ViewLogs)]
+    public virtual async Task<SystemHealthDto> GetSystemHealthAsync()
     {
+        const string healthCacheKey = "system_health";
+        var cachedHealth = await _healthCache.GetAsync(healthCacheKey);
+        if (cachedHealth != null)
+        {
+            Logger.LogDebug("Returning cached system health data");
+            return cachedHealth;
+        }
+
         try
         {
-            // Convert DateTime to unspecified kind to avoid PostgreSQL issues
             var oneHourAgo = DateTime.UtcNow.AddHours(-1);
             var oneHourAgoUnspecified = DateTime.SpecifyKind(oneHourAgo, DateTimeKind.Unspecified);
             
@@ -112,7 +146,7 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
 
             var status = _dashboardHelper.GetHealthStatus(recentErrors, recentCritical, avgResponseTime);
 
-            return new SystemHealthDto
+            var healthDto = new SystemHealthDto
             {
                 Status = status,
                 RecentErrors = recentErrors,
@@ -125,6 +159,12 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
                     ["CheckPeriod"] = "Last 1 hour"
                 }
             };
+
+            await _healthCache.SetAsync(healthCacheKey, healthDto, new Microsoft.Extensions.Caching.Distributed.DistributedCacheEntryOptions 
+            {
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(2)
+            });
+            return healthDto;
         }
         catch (Exception ex)
         {
@@ -140,7 +180,8 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         }
     }
 
-    public async Task<ApplicationsListDto> GetApplicationsAsync()
+    [Authorize(ERPPlatformPermissions.LogAnalytics.ViewLogs)]
+    public virtual async Task<ApplicationsListDto> GetApplicationsAsync()
     {
         try
         {
@@ -179,7 +220,8 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
 
     #region Log Search and Export
 
-    public async Task<LogSearchResponseDto> SearchLogsAsync(LogSearchRequestDto request)
+    [Authorize(ERPPlatformPermissions.LogAnalytics.SearchLogs)]
+    public virtual async Task<LogSearchResponseDto> SearchLogsAsync(LogSearchRequestDto request)
     {
         Check.NotNull(request, nameof(request));
         
@@ -238,7 +280,8 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         }
     }
 
-    public async Task<byte[]> ExportLogsAsync(ExportLogsRequestDto request)
+    [Authorize(ERPPlatformPermissions.LogAnalytics.ExportLogs)]
+    public virtual async Task<byte[]> ExportLogsAsync(ExportLogsRequestDto request)
     {
         Check.NotNull(request, nameof(request));
         
@@ -278,7 +321,8 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         }
     }
 
-    public async Task<PaginatedResponse<RecentLogEntryDto>> GetRecentLogsAsync(RecentLogsRequestDto request)
+    [Authorize(ERPPlatformPermissions.LogAnalytics.ViewLogs)]
+    public virtual async Task<PaginatedResponse<RecentLogEntryDto>> GetRecentLogsAsync(RecentLogsRequestDto request)
     {
         Check.NotNull(request, nameof(request));
         
@@ -341,7 +385,8 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
 
     #region Audit Log Operations
 
-    public async Task<AuditLogStatisticsDto> GetAuditLogStatisticsAsync(AuditLogSearchRequestDto request)
+    [Authorize(ERPPlatformPermissions.AuditLogs.View)]
+    public virtual async Task<AuditLogStatisticsDto> GetAuditLogStatisticsAsync(AuditLogSearchRequestDto request)
     {
         Check.NotNull(request, nameof(request));
 
@@ -391,7 +436,8 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         }
     }
 
-    public async Task<AuditLogSearchResponseDto> SearchAuditLogsAsync(AuditLogSearchRequestDto request)
+    [Authorize(ERPPlatformPermissions.AuditLogs.View)]
+    public virtual async Task<AuditLogSearchResponseDto> SearchAuditLogsAsync(AuditLogSearchRequestDto request)
     {
         Check.NotNull(request, nameof(request));
         
@@ -420,7 +466,8 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         }
     }
 
-    public async Task<PaginatedResponse<RecentAuditLogDto>> GetRecentAuditLogsAsync(RecentAuditLogsRequestDto request)
+    [Authorize(ERPPlatformPermissions.AuditLogs.View)]
+    public virtual async Task<PaginatedResponse<RecentAuditLogDto>> GetRecentAuditLogsAsync(RecentAuditLogsRequestDto request)
     {
         Check.NotNull(request, nameof(request));
         
@@ -470,7 +517,8 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         }
     }
 
-    public async Task<byte[]> ExportAuditLogsAsync(ExportAuditLogsRequestDto request)
+    [Authorize(ERPPlatformPermissions.AuditLogs.Export)]
+    public virtual async Task<byte[]> ExportAuditLogsAsync(ExportAuditLogsRequestDto request)
     {
         Check.NotNull(request, nameof(request));
         
@@ -514,7 +562,8 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
 
     #region Analytics and Insights
 
-    public async Task<PaginatedResponse<TopUserActivityDto>> GetTopUserActivitiesAsync(TopUserActivitiesRequestDto request)
+    [Authorize(ERPPlatformPermissions.LogAnalytics.ViewLogs)]
+    public virtual async Task<PaginatedResponse<TopUserActivityDto>> GetTopUserActivitiesAsync(TopUserActivitiesRequestDto request)
     {
         Check.NotNull(request, nameof(request));
         
@@ -563,7 +612,8 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         }
     }
 
-    public async Task<PaginatedResponse<AuditLogMethodCountDto>> GetTopAuditMethodsAsync(TopAuditMethodsRequestDto request)
+    [Authorize(ERPPlatformPermissions.LogAnalytics.ViewLogs)]
+    public virtual async Task<PaginatedResponse<AuditLogMethodCountDto>> GetTopAuditMethodsAsync(TopAuditMethodsRequestDto request)
     {
         Check.NotNull(request, nameof(request));
         
@@ -619,7 +669,7 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
 
     #region Private Helper Methods
 
-    private IQueryable<RecentLogEntryDto> ApplyLogSearchFilters(IQueryable<RecentLogEntryDto> logs, LogSearchRequestDto request)
+    protected virtual IQueryable<RecentLogEntryDto> ApplyLogSearchFilters(IQueryable<RecentLogEntryDto> logs, LogSearchRequestDto request)
     {
         if (request.FromDate.HasValue)
             logs = logs.Where(l => l.Timestamp >= request.FromDate.Value);
@@ -645,7 +695,7 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         return logs;
     }
 
-    private IQueryable<RecentLogEntryDto> ApplyRecentLogsFilters(IQueryable<RecentLogEntryDto> logs, RecentLogsRequestDto request)
+    protected virtual IQueryable<RecentLogEntryDto> ApplyRecentLogsFilters(IQueryable<RecentLogEntryDto> logs, RecentLogsRequestDto request)
     {
         if (request.FromDate.HasValue)
             logs = logs.Where(l => l.Timestamp >= request.FromDate.Value);
@@ -662,7 +712,7 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         return logs;
     }
 
-    private IQueryable<AuditLog> ApplyAuditLogSearchFilters(IQueryable<AuditLog> logs, AuditLogSearchRequestDto request)
+    protected virtual IQueryable<AuditLog> ApplyAuditLogSearchFilters(IQueryable<AuditLog> logs, AuditLogSearchRequestDto request)
     {
         if (request.FromDate.HasValue)
         {
@@ -703,7 +753,7 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         return logs;
     }
 
-    private RecentAuditLogDto MapToRecentAuditLogDto(AuditLog auditLog)
+    protected virtual RecentAuditLogDto MapToRecentAuditLogDto(AuditLog auditLog)
     {
         return new RecentAuditLogDto
         {
@@ -723,7 +773,7 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         };
     }
 
-    private async Task<LogStatisticsDto> GetLogStatisticsAsync(DateTime fromDate, DateTime toDate)
+    protected virtual async Task<LogStatisticsDto> GetLogStatisticsAsync(DateTime fromDate, DateTime toDate)
     {
         var auditStats = await GetAuditLogStatisticsAsync(new AuditLogSearchRequestDto { FromDate = fromDate, ToDate = toDate });
 
@@ -753,7 +803,7 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         };
     }
 
-    private async Task<List<LogLevelCountDto>> GetLogLevelCountsAsync(DateTime fromDate, DateTime toDate)
+    protected virtual async Task<List<LogLevelCountDto>> GetLogLevelCountsAsync(DateTime fromDate, DateTime toDate)
     {
         var auditStats = await GetAuditLogStatisticsAsync(new AuditLogSearchRequestDto { FromDate = fromDate, ToDate = toDate });
         var total = auditStats.TotalAuditLogs;
@@ -792,7 +842,7 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         };
     }
 
-    private async Task<List<ApplicationLogCountDto>> GetApplicationCountsAsync(DateTime fromDate, DateTime toDate)
+    protected virtual async Task<List<ApplicationLogCountDto>> GetApplicationCountsAsync(DateTime fromDate, DateTime toDate)
     {
         var auditStats = await GetAuditLogStatisticsAsync(new AuditLogSearchRequestDto { FromDate = fromDate, ToDate = toDate });
 
@@ -811,7 +861,7 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         };
     }
 
-    private async Task<List<HourlyLogCountDto>> GetHourlyTrendsAsync(DateTime fromDate, DateTime toDate)
+    protected virtual async Task<List<HourlyLogCountDto>> GetHourlyTrendsAsync(DateTime fromDate, DateTime toDate)
     {
         var last24Hours = DateTime.UtcNow.AddHours(-24);
         // Convert DateTime to unspecified kind to avoid PostgreSQL issues
@@ -830,14 +880,14 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
             24);
     }
 
-    private async Task<List<RecentLogEntryDto>> GetRecentLogsForDashboardAsync(int count)
+    protected virtual async Task<List<RecentLogEntryDto>> GetRecentLogsForDashboardAsync(int count)
     {
         var request = new RecentLogsRequestDto { Take = count };
         var result = await GetRecentLogsAsync(request);
         return result.Items;
     }
 
-    private async Task<List<TopErrorDto>> GetTopErrorsAsync(int count)
+    protected virtual async Task<List<TopErrorDto>> GetTopErrorsAsync(int count)
     {
         var auditLogs = await _auditLogRepository.GetListAsync(
             x => !string.IsNullOrEmpty(x.Exceptions),
@@ -865,7 +915,7 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         return errorGroups;
     }
 
-    private async Task<List<PerformanceMetricDto>> GetPerformanceMetricsAsync(int count)
+    protected virtual async Task<List<PerformanceMetricDto>> GetPerformanceMetricsAsync(int count)
     {
         var methodCountsRequest = new TopAuditMethodsRequestDto { Count = count };
         var methodCounts = await GetTopAuditMethodsAsync(methodCountsRequest);
@@ -881,28 +931,28 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         }).ToList();
     }
 
-    private async Task<List<RecentAuditLogDto>> GetRecentAuditLogsForDashboardAsync(int count)
+    protected virtual async Task<List<RecentAuditLogDto>> GetRecentAuditLogsForDashboardAsync(int count)
     {
         var request = new RecentAuditLogsRequestDto { Take = count };
         var result = await GetRecentAuditLogsAsync(request);
         return result.Items;
     }
 
-    private async Task<List<TopUserActivityDto>> GetTopUserActivitiesForDashboardAsync(int count)
+    protected virtual async Task<List<TopUserActivityDto>> GetTopUserActivitiesForDashboardAsync(int count)
     {
         var request = new TopUserActivitiesRequestDto { Count = count };
         var result = await GetTopUserActivitiesAsync(request);
         return result.Items;
     }
 
-    private async Task<List<AuditLogMethodCountDto>> GetTopAuditMethodsForDashboardAsync(int count)
+    protected virtual async Task<List<AuditLogMethodCountDto>> GetTopAuditMethodsForDashboardAsync(int count)
     {
         var request = new TopAuditMethodsRequestDto { Count = count };
         var result = await GetTopAuditMethodsAsync(request);
         return result.Items;
     }
 
-    private async Task<byte[]> ExportLogsAsJsonAsync(IReadOnlyList<RecentLogEntryDto> logs)
+    protected virtual async Task<byte[]> ExportLogsAsJsonAsync(IReadOnlyList<RecentLogEntryDto> logs)
     {
         return await Task.FromResult(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(logs, new JsonSerializerOptions
         {
@@ -910,7 +960,7 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         })));
     }
 
-    private async Task<byte[]> ExportLogsAsCsvAsync(IReadOnlyList<RecentLogEntryDto> logs)
+    protected virtual async Task<byte[]> ExportLogsAsCsvAsync(IReadOnlyList<RecentLogEntryDto> logs)
     {
         var csv = new StringBuilder();
         csv.AppendLine("Timestamp,Level,Application,Message,UserId,Exception");
@@ -928,7 +978,7 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         return await Task.FromResult(Encoding.UTF8.GetBytes(csv.ToString()));
     }
 
-    private async Task<byte[]> ExportAuditLogsAsJsonAsync(IReadOnlyList<RecentAuditLogDto> logs)
+    protected virtual async Task<byte[]> ExportAuditLogsAsJsonAsync(IReadOnlyList<RecentAuditLogDto> logs)
     {
         return await Task.FromResult(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(logs, new JsonSerializerOptions
         {
@@ -936,7 +986,7 @@ public class LogAnalyticsDashboardAppService : ApplicationService, ILogAnalytics
         })));
     }
 
-    private async Task<byte[]> ExportAuditLogsAsCsvAsync(IReadOnlyList<RecentAuditLogDto> logs)
+    protected virtual async Task<byte[]> ExportAuditLogsAsCsvAsync(IReadOnlyList<RecentAuditLogDto> logs)
     {
         var csv = new StringBuilder();
         csv.AppendLine("ExecutionTime,UserId,UserName,ServiceName,MethodName,ExecutionDuration,ClientIpAddress,HttpMethod,HttpStatusCode,HasException");
