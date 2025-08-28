@@ -10,12 +10,12 @@ namespace ERPPlatform.Logging;
 /// <summary>
 /// Service for logging security events following ABP standards
 /// </summary>
-public class SecurityEventLogService : ApplicationService, ISecurityEventLogService
+public class SecurityEventLogAppService : ApplicationService, ISecurityEventLogAppService
 {
     private readonly LoggingContextProvider _contextProvider;
     private readonly StructuredLoggerHelper _loggerHelper;
 
-    public SecurityEventLogService(
+    public SecurityEventLogAppService(
         LoggingContextProvider contextProvider,
         StructuredLoggerHelper loggerHelper)
     {

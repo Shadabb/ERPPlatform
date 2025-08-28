@@ -6,7 +6,7 @@ namespace ERPPlatform.Logging;
 /// <summary>
 /// Service interface for logging business operations following ABP standards
 /// </summary>
-public interface IBusinessOperationLogService : IApplicationService
+public interface IBusinessOperationLogAppService : IApplicationService
 {
     /// <summary>
     /// Logs a business operation with structured data

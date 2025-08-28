@@ -10,12 +10,12 @@ namespace ERPPlatform.Logging;
 /// <summary>
 /// Service for logging performance metrics following ABP standards
 /// </summary>
-public class PerformanceLogService : ApplicationService, IPerformanceLogService
+public class PerformanceLogAppService : ApplicationService, IPerformanceLogAppService
 {
     private readonly LoggingContextProvider _contextProvider;
     private readonly StructuredLoggerHelper _loggerHelper;
 
-    public PerformanceLogService(
+    public PerformanceLogAppService(
         LoggingContextProvider contextProvider,
         StructuredLoggerHelper loggerHelper)
     {

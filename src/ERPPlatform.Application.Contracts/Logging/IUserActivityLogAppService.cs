@@ -6,7 +6,7 @@ namespace ERPPlatform.Logging;
 /// <summary>
 /// Service interface for logging user activities following ABP standards
 /// </summary>
-public interface IUserActivityLogService : IApplicationService
+public interface IUserActivityLogAppService : IApplicationService
 {
     /// <summary>
     /// Logs a user activity with structured data

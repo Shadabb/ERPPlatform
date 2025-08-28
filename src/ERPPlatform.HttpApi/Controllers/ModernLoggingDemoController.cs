@@ -16,17 +16,17 @@ namespace ERPPlatform.Controllers;
 public class ModernLoggingDemoController : AbpControllerBase
 {
     private readonly LoggingExamplesAppService _loggingExamplesService;
-    private readonly IBusinessOperationLogService _businessLogService;
-    private readonly IUserActivityLogService _userActivityLogService;
-    private readonly IPerformanceLogService _performanceLogService;
-    private readonly ISecurityEventLogService _securityLogService;
+    private readonly IBusinessOperationLogAppService _businessLogService;
+    private readonly IUserActivityLogAppService _userActivityLogService;
+    private readonly IPerformanceLogAppService _performanceLogService;
+    private readonly ISecurityEventLogAppService _securityLogService;
 
     public ModernLoggingDemoController(
         LoggingExamplesAppService loggingExamplesService,
-        IBusinessOperationLogService businessLogService,
-        IUserActivityLogService userActivityLogService,
-        IPerformanceLogService performanceLogService,
-        ISecurityEventLogService securityLogService)
+        IBusinessOperationLogAppService businessLogService,
+        IUserActivityLogAppService userActivityLogService,
+        IPerformanceLogAppService performanceLogService,
+        ISecurityEventLogAppService securityLogService)
     {
         _loggingExamplesService = loggingExamplesService;
         _businessLogService = businessLogService;
@@ -199,10 +199,10 @@ public class ModernLoggingDemoController : AbpControllerBase
             },
             Services = new[]
             {
-                "IBusinessOperationLogService - Business operation logging",
-                "IUserActivityLogService - User activity tracking", 
-                "IPerformanceLogService - Performance monitoring",
-                "ISecurityEventLogService - Security event logging"
+                "IBusinessOperationLogAppService - Business operation logging",
+                "IUserActivityLogAppService - User activity tracking", 
+                "IPerformanceLogAppService - Performance monitoring",
+                "ISecurityEventLogAppService - Security event logging"
             },
             Constants = new
             {

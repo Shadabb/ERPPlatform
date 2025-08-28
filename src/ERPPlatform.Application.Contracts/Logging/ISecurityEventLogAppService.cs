@@ -6,7 +6,7 @@ namespace ERPPlatform.Logging;
 /// <summary>
 /// Service interface for logging security events following ABP standards
 /// </summary>
-public interface ISecurityEventLogService : IApplicationService
+public interface ISecurityEventLogAppService : IApplicationService
 {
     /// <summary>
     /// Logs a security event with structured data

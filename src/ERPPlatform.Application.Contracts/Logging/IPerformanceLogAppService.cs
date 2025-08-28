@@ -7,7 +7,7 @@ namespace ERPPlatform.Logging;
 /// <summary>
 /// Service interface for logging performance metrics following ABP standards
 /// </summary>
-public interface IPerformanceLogService : IApplicationService
+public interface IPerformanceLogAppService : IApplicationService
 {
     /// <summary>
     /// Logs performance data with structured information

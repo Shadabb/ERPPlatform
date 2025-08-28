@@ -10,12 +10,12 @@ namespace ERPPlatform.Logging;
 /// <summary>
 /// Service for logging business operations following ABP standards
 /// </summary>
-public class BusinessOperationLogService : ApplicationService, IBusinessOperationLogService
+public class BusinessOperationLogAppService : ApplicationService, IBusinessOperationLogAppService
 {
     private readonly LoggingContextProvider _contextProvider;
     private readonly StructuredLoggerHelper _loggerHelper;
 
-    public BusinessOperationLogService(
+    public BusinessOperationLogAppService(
         LoggingContextProvider contextProvider,
         StructuredLoggerHelper loggerHelper)
     {

@@ -10,12 +10,12 @@ namespace ERPPlatform.Logging;
 /// <summary>
 /// Service for logging user activities following ABP standards
 /// </summary>
-public class UserActivityLogService : ApplicationService, IUserActivityLogService
+public class UserActivityLogAppService : ApplicationService, IUserActivityLogAppService
 {
     private readonly LoggingContextProvider _contextProvider;
     private readonly StructuredLoggerHelper _loggerHelper;
 
-    public UserActivityLogService(
+    public UserActivityLogAppService(
         LoggingContextProvider contextProvider,
         StructuredLoggerHelper loggerHelper)
     {

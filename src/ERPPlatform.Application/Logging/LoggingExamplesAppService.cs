@@ -13,16 +13,16 @@ namespace ERPPlatform.Logging;
 /// </summary>
 public class LoggingExamplesAppService : ApplicationService
 {
-    private readonly IBusinessOperationLogService _businessLogService;
-    private readonly IUserActivityLogService _userActivityLogService;
-    private readonly IPerformanceLogService _performanceLogService;
-    private readonly ISecurityEventLogService _securityLogService;
+    private readonly IBusinessOperationLogAppService _businessLogService;
+    private readonly IUserActivityLogAppService _userActivityLogService;
+    private readonly IPerformanceLogAppService _performanceLogService;
+    private readonly ISecurityEventLogAppService _securityLogService;
 
     public LoggingExamplesAppService(
-        IBusinessOperationLogService businessLogService,
-        IUserActivityLogService userActivityLogService,
-        IPerformanceLogService performanceLogService,
-        ISecurityEventLogService securityLogService)
+        IBusinessOperationLogAppService businessLogService,
+        IUserActivityLogAppService userActivityLogService,
+        IPerformanceLogAppService performanceLogService,
+        ISecurityEventLogAppService securityLogService)
     {
         _businessLogService = businessLogService;
         _userActivityLogService = userActivityLogService;
