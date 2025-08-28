@@ -200,7 +200,7 @@ class LogAnalyticsDashboard {
 
     async loadApplications() {
         try {
-            const response = await fetch('/api/log-analytics/applications');
+            const response = await fetch('/api/audit-analytics/applications');
             const result = await response.json();
             
             console.log('Applications data:', result);
@@ -234,7 +234,7 @@ class LogAnalyticsDashboard {
             // console.log('Testing direct container update...');
             // this.testContainerUpdates();
             
-            const response = await fetch('/api/log-analytics/dashboard');
+            const response = await fetch('/api/audit-analytics/dashboard');
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
@@ -672,7 +672,7 @@ class LogAnalyticsDashboard {
                 headers['RequestVerificationToken'] = token;
             }
             
-            const response = await fetch('/api/log-analytics/search', {
+            const response = await fetch('/api/audit-analytics/search', {
                 method: 'POST',
                 headers: headers,
                 body: JSON.stringify(searchRequest)
@@ -700,7 +700,7 @@ class LogAnalyticsDashboard {
     async loadRecentLogsPaginated(skip, take) {
         try {
             console.log(`Loading recent logs with skip=${skip}, take=${take}`);
-            const response = await fetch(`/api/log-analytics/recent-logs/paginated?skip=${skip}&take=${take}`);
+            const response = await fetch(`/api/audit-analytics/recent-logs/paginated?skip=${skip}&take=${take}`);
             const result = await response.json();
             
             console.log('Server-side pagination result:', result);
@@ -721,7 +721,7 @@ class LogAnalyticsDashboard {
     async loadRecentAuditLogsPaginated(skip, take) {
         try {
             console.log(`Loading recent audit logs with skip=${skip}, take=${take}`);
-            const response = await fetch(`/api/log-analytics/audit-logs/recent/paginated?skip=${skip}&take=${take}`);
+            const response = await fetch(`/api/audit-analytics/audit-logs/recent/paginated?skip=${skip}&take=${take}`);
             const result = await response.json();
             
             console.log('Server-side audit pagination result:', result);
@@ -885,7 +885,7 @@ class LogAnalyticsDashboard {
 
     async checkSystemHealth() {
         try {
-            const response = await fetch('/api/log-analytics/system-health');
+            const response = await fetch('/api/audit-analytics/system-health');
             const health = await response.json();
             
             const alert = document.getElementById('systemHealthAlert');
@@ -989,7 +989,7 @@ class LogAnalyticsDashboard {
             console.log('Sending search request:', searchRequest);
             console.log('Request headers:', headers);
             
-            const response = await fetch('/api/log-analytics/search', {
+            const response = await fetch('/api/audit-analytics/search', {
                 method: 'POST',
                 headers: headers,
                 body: JSON.stringify(searchRequest)
@@ -1058,7 +1058,7 @@ class LogAnalyticsDashboard {
                 headers['RequestVerificationToken'] = token;
             }
 
-            fetch(`/api/log-analytics/export?${queryString}`, {
+            fetch(`/api/audit-analytics/export?${queryString}`, {
                 method: 'POST',
                 headers: headers,
                 body: JSON.stringify(exportRequest)
@@ -1355,7 +1355,7 @@ class LogAnalyticsDashboard {
             }
 
             // Make API call
-            const response = await fetch('/api/log-analytics/audit-logs/search', {
+            const response = await fetch('/api/audit-analytics/audit-logs/search', {
                 method: 'POST',
                 headers: headers,
                 body: JSON.stringify(searchRequest)
@@ -1783,7 +1783,7 @@ class LogAnalyticsDashboard {
     async debugLoadData() {
         console.log('=== DEBUG: Manual data load test ===');
         try {
-            const response = await fetch('/api/log-analytics/dashboard');
+            const response = await fetch('/api/audit-analytics/dashboard');
             if (!response.ok) {
                 console.error('API request failed:', response.status, response.statusText);
                 return;
@@ -2236,21 +2236,21 @@ class LogAnalyticsDashboard {
         const endpoints = [
             {
                 method: 'GET',
-                path: '/api/log-analytics/dashboard',
+                path: '/api/audit-analytics/dashboard',
                 calls: Math.floor(auditStatistics.totalAuditLogs * 0.3),
                 avgDuration: Math.round(auditStatistics.avgExecutionDuration * 0.8),
                 status: 200
             },
             {
                 method: 'POST',
-                path: '/api/log-analytics/search',
+                path: '/api/audit-analytics/search',
                 calls: Math.floor(auditStatistics.totalAuditLogs * 0.2),
                 avgDuration: Math.round(auditStatistics.avgExecutionDuration * 1.2),
                 status: 200
             },
             {
                 method: 'POST',
-                path: '/api/log-analytics/audit-search',
+                path: '/api/audit-analytics/audit-search',
                 calls: Math.floor(auditStatistics.totalAuditLogs * 0.15),
                 avgDuration: Math.round(auditStatistics.avgExecutionDuration * 1.1),
                 status: 200
@@ -2301,7 +2301,7 @@ class LogAnalyticsDashboard {
         const endpointData = [
             {
                 method: 'GET',
-                path: '/api/log-analytics/dashboard',
+                path: '/api/audit-analytics/dashboard',
                 calls: Math.floor(auditStatistics.totalAuditLogs * 0.35),
                 avgDuration: Math.round(auditStatistics.avgExecutionDuration * 0.7),
                 successRate: 98.5,
@@ -2309,7 +2309,7 @@ class LogAnalyticsDashboard {
             },
             {
                 method: 'POST',
-                path: '/api/log-analytics/search',
+                path: '/api/audit-analytics/search',
                 calls: Math.floor(auditStatistics.totalAuditLogs * 0.25),
                 avgDuration: Math.round(auditStatistics.avgExecutionDuration * 1.3),
                 successRate: 97.2,
@@ -2317,7 +2317,7 @@ class LogAnalyticsDashboard {
             },
             {
                 method: 'POST',
-                path: '/api/log-analytics/audit-search',
+                path: '/api/audit-analytics/audit-search',
                 calls: Math.floor(auditStatistics.totalAuditLogs * 0.20),
                 avgDuration: Math.round(auditStatistics.avgExecutionDuration * 1.1),
                 successRate: 96.8,
