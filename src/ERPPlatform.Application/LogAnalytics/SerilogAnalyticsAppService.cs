@@ -4,10 +4,12 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
 using Volo.Abp;
 using Volo.Abp.Application.Services;
 using ERPPlatform.LogAnalytics.Helpers;
+using ERPPlatform.Permissions;
 
 namespace ERPPlatform.LogAnalytics;
 
@@ -185,7 +187,7 @@ public class SerilogAnalyticsAppService : ApplicationService, ISerilogAnalyticsA
             // Get the actual total count from database (not just the fetched logs)
             var totalCount = await _serilogRepository.GetTotalCountAsync();
 
-            return new SerilogSearchResponseDto(totalCount, mappedLogs, request.Page, request.PageSize);
+            return new SerilogSearchResponseDto((int)totalCount, mappedLogs, request.Page, request.PageSize);
         }
         catch (Exception ex)
         {
@@ -415,7 +417,7 @@ public class SerilogAnalyticsAppService : ApplicationService, ISerilogAnalyticsA
         // TODO: Extract HTTP-specific metrics from LogEvent JSON when available
         return new SerilogStatisticsDto
         {
-            TotalLogs = totalLogs,
+            TotalLogs = (int)totalLogs,
             TodayLogs = todayLogs,
             ErrorCount = errorCount,
             WarningCount = warningCount,
